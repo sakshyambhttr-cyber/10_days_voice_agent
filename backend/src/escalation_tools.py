@@ -313,4 +313,4 @@ async def create_escalation(
         f"Successfully created escalation ticket {ref_id} for user {user_id} (Webhook delivered: {webhook_success})"
     )
 
-    return f"Your support request has been initialized. Your reference ID is {ref_id}. A human teacher will review your request and contact you within 24 hours."
+    return f"Your support request has been created. Your reference ID is {ref_id}. A human teacher will review your request and contact you within 24 hours."

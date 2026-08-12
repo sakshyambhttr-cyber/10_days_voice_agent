@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, Brain, LifeBuoy, Mic, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, BarChart3, Brain, LifeBuoy, Mic, ShieldCheck, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { getPersistentUserId } from '@/lib/utils';
+import { AnalyticsDashboard } from './analytics-dashboard';
 import { EscalationsDrawer } from './escalations-drawer';
 import { MemoryPanel, UserMemoryData } from './memory-panel';
 import { PracticeCallSection } from './practice-call-section';
@@ -26,6 +27,7 @@ export const WelcomeView = ({
   const [memory, setMemory] = useState<UserMemoryData | null>(null);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [isEscalationsOpen, setIsEscalationsOpen] = useState(false);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<PracticeMode>(PRACTICE_MODES[0]);
 
   // Fetch persistent memory facts on mount
@@ -96,6 +98,16 @@ export const WelcomeView = ({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setIsAnalyticsOpen(true)}
+              className="rounded-full border-purple-200 bg-purple-50/70 text-xs font-bold text-purple-700 hover:bg-purple-100/70 hover:text-purple-900"
+            >
+              <BarChart3 className="mr-1.5 size-4 text-purple-600" />
+              <span>Analytics</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setIsEscalationsOpen(true)}
               className="rounded-full border-amber-200 bg-amber-50/70 text-xs font-bold text-amber-700 hover:bg-amber-100/70 hover:text-amber-900"
             >
@@ -126,6 +138,9 @@ export const WelcomeView = ({
 
       {/* Main Content */}
       <main className="mx-auto flex max-w-4xl flex-1 flex-col gap-10 px-4 py-8 sm:px-8 sm:py-12">
+        {/* Analytics Dashboard Drawer */}
+        <AnalyticsDashboard isOpen={isAnalyticsOpen} onClose={() => setIsAnalyticsOpen(false)} />
+
         {/* Escalations Drawer */}
         <EscalationsDrawer isOpen={isEscalationsOpen} onClose={() => setIsEscalationsOpen(false)} />
 

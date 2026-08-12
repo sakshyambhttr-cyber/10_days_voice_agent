@@ -10,6 +10,7 @@ import {
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { cleanChatMessage } from '@/lib/utils';
 
 /**
  * Props for the AgentChatTranscript component.
@@ -60,11 +61,13 @@ export function AgentChatTranscript({
           const messageOrigin = from?.isLocal ? 'user' : 'assistant';
           const time = new Date(timestamp);
           const title = time.toLocaleTimeString(locale, { timeStyle: 'full' });
+          const cleanedText = cleanChatMessage(message);
+          if (!cleanedText) return null;
 
           return (
             <Message key={id} title={title} from={messageOrigin}>
               <MessageContent>
-                <MessageResponse>{message}</MessageResponse>
+                <MessageResponse>{cleanedText}</MessageResponse>
               </MessageContent>
             </Message>
           );

@@ -254,7 +254,7 @@ async def test_test_d_consent_denied_no_escalation() -> None:
             .judge(
                 llm_obj,
                 intent="""
-                Politely acknowledges user decision not to share information.
+                Politely acknowledges user decision not to share information or not to create a request.
                 Does NOT create a ticket or claim a request was sent.
                 """,
             )
