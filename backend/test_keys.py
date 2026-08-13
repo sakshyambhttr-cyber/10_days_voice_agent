@@ -8,7 +8,9 @@ load_dotenv(".env.local")
 
 
 async def test_groq():
-    key = os.getenv("GROQ_API_KEY", "").strip() or os.getenv("GROQ_API_KEY_1", "").strip()
+    key = (
+        os.getenv("GROQ_API_KEY", "").strip() or os.getenv("GROQ_API_KEY_1", "").strip()
+    )
     print(f"Groq key (first 10 chars): {key[:10]}...")
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(
