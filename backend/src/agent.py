@@ -1,9 +1,19 @@
+# ruff: noqa: E402
 import asyncio
+import json
 import logging
 import os
+import re
 
 import httpx
 from dotenv import load_dotenv
+
+# Ensure environment variables from backend/.env.local are eagerly loaded
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_backend_dir, ".env.local"))
+load_dotenv(os.path.join(_backend_dir, ".env"))
+load_dotenv(".env.local")
+load_dotenv()
 
 # pyrefly: ignore [missing-import]
 from livekit.agents import (
@@ -59,11 +69,11 @@ from rag import (
     search_learning_resources as fn_search_learning_resources,
 )
 from scoring import (
+    _compute_score,
     score_spoken_answer as fn_score_spoken_answer,
 )
 
 logger = logging.getLogger("agent")
-load_dotenv(".env.local")
 
 
 def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
@@ -75,7 +85,6 @@ def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
             and hasattr(session.chat_ctx, "messages")
         ):
             msgs = session.chat_ctx.messages
-            # Filter out any raw tool JSON leakage messages
             cleaned_msgs = []
             for m in msgs:
                 content = str(getattr(m, "content", "") or "")
@@ -84,12 +93,23 @@ def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
                     or '{"who_needs_help"' in content
                     or '"parameters":' in content
                     or "</function>" in content
+                    or "<tool_call>" in content
                     or "create_escalation" in content
                     or "fetch_next_exercise" in content
                     or "score_spoken_answer" in content
-                    or ">{" in content
+                    or (">" in content and "{" in content)
                 ):
-                    continue
+                    clean_content = re.sub(r"\b\w+>\s*\{[^}]*\}?", "", content)
+                    clean_content = re.sub(
+                        r"<\/?(?:tool_call|function)[^>]*>", "", clean_content
+                    )
+                    clean_content = re.sub(
+                        r"\{\s*\"[^\"]+\"\s*:[\s\S]*?\}", "", clean_content
+                    ).strip()
+                    if not clean_content or clean_content.startswith("{"):
+                        continue
+                    if hasattr(m, "content"):
+                        m.content = clean_content
                 cleaned_msgs.append(m)
 
             if len(cleaned_msgs) > max_turns + 1:
@@ -97,7 +117,8 @@ def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
                     [cleaned_msgs[0]]
                     if (
                         cleaned_msgs
-                        and getattr(cleaned_msgs[0], "role", None) == "system"
+                        and getattr(cleaned_msgs[0], "role", None)
+                        in ("system", "developer")
                     )
                     else []
                 )
@@ -111,37 +132,156 @@ def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
         logger.warning(f"Chat context pruning exception: {e}")
 
 
-def create_murf_tts(
-    voice: str = "Anisha",
-    style: str = "Conversation",
-    min_sentence_len: int = 1,
-    text_pacing: bool = True,
-) -> murf.TTS:
-    """Factory helper to instantiate Murf Falcon TTS with consistent streaming parameters across specialists."""
+def _clean_tts_text(text: str) -> str:
+    """Sanitize spoken text output to ensure no raw tool tags, XML, JSON, or formatting noise reach TTS audio synthesis."""
+    if not text:
+        return ""
+
+    # 1. Remove pseudo tool calls like fetch_next_exercise>{...} or tool_name>{...}
+    text = re.sub(r"\b\w+>\s*\{[^}]*\}?", "", text)
+    text = re.sub(
+        r"\(?\s*function\s*=\s*\w+[^>)]*[\)>]?", "", text, flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r"</?(?:function|tool_call|tool)[^>]*>", "", text, flags=re.IGNORECASE
+    )
+    text = re.sub(r"\(?\s*function[\s\S]*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # 2. Remove any JSON structures or raw parameter dictionaries (complete OR unclosed)
+    text = re.sub(
+        r"\{\s*\"(?:name|parameters|level|topic|who_needs_help|reason_type|issue_summary|checked_by_agent|preferred_language|preferred_contact|user_id|reference_id|key|value|category|query|exercise_question|user_spoken_answer|target_criteria)\"[\s\S]*?\}",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\{\s*\"[^\"]+\"\s*:[\s\S]*?\}", "", text)
+    text = re.sub(r"\{[\s\S]*?\}", "", text)
+
+    # 3. Strip markdown formatting symbols and unwanted characters
+    text = re.sub(r"[\/\\\_\|\#\*\=\+\@\%\^\&\~\`]+", " ", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def create_murf_tts(voice: str = "Anisha") -> murf.TTS:
+    """Create Murf Falcon streaming TTS instance with specified voice."""
     return murf.TTS(
         voice=voice,
-        style=style,
-        tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=min_sentence_len),
-        text_pacing=text_pacing,
+        style="Conversation",
+        tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=1),
+        text_pacing=True,
     )
 
 
+# ---------------------------------------------------------------------------
+# MAIN AGENT: BolBuddy (Murf Falcon · Anisha)
+# ---------------------------------------------------------------------------
 class Assistant(Agent):
-    """BolBuddy: Main Voice AI English speaking companion (Murf voice: 'Anisha')."""
+    """
+    BolBuddy — General English Speaking Companion.
+    Handles general English conversation, pronunciation, vocabulary, memory, practice exercises,
+    and transfers to InterviewBuddy when the user requests job interview or mock interview practice.
+    """
 
     def __init__(
         self,
         chat_ctx: llm.ChatContext | None = None,
         tts: tts.TTS | str | None = None,
         voice: str = "Anisha",
+        is_handoff_return: bool = False,
         **kwargs,
     ) -> None:
+        agent_tts = tts
+        if agent_tts is None or isinstance(agent_tts, str):
+            try:
+                agent_tts = create_murf_tts(voice=voice)
+            except Exception as e:
+                logger.warning(f"Could not create Murf TTS for voice '{voice}': {e}")
+                agent_tts = None
+
         super().__init__(
             instructions=SYSTEM_PROMPT,
             chat_ctx=chat_ctx,
-            tts=tts if tts is not None else NOT_GIVEN,
+            tts=agent_tts if agent_tts is not None else NOT_GIVEN,
             **kwargs,
         )
+        self._is_handoff_return = is_handoff_return
+        self.voice = voice
+
+    async def on_enter(self) -> None:
+        logger.info(f"Entering BolBuddy (voice: Murf Falcon · {self.voice})")
+        try:
+            if (
+                hasattr(self, "session")
+                and self.session
+                and hasattr(self.session, "room_io")
+            ):
+                room = getattr(self.session.room_io, "room", None)
+                if (
+                    room
+                    and hasattr(room, "local_participant")
+                    and room.local_participant
+                ):
+                    await room.local_participant.set_attributes(
+                        {
+                            "active_agent": "bolbuddy",
+                            "agent_name": "BolBuddy",
+                            "agent_title": "English Speaking Companion",
+                            "voice_name": "Murf Falcon · Anisha",
+                        }
+                    )
+        except Exception as e:
+            logger.debug(f"Attribute update notice: {e}")
+
+        if getattr(self, "_is_handoff_return", False):
+            try:
+                if hasattr(self, "session") and self.session:
+                    await self.session.say(
+                        "Welcome back! What would you like to practice?",
+                        allow_interruptions=True,
+                    )
+            except Exception as e:
+                logger.debug(f"BolBuddy return greeting trigger notice: {e}")
+
+    @function_tool
+    async def transfer_to_interview_buddy(
+        self,
+        context: RunContext,
+        reason: str = "interview_preparation",
+        target_role: str = "software internship",
+    ) -> Agent:
+        """
+        Transfer the conversation to InterviewBuddy, the job interview preparation specialist.
+        CRITICAL: ONLY invoke this tool AFTER the user explicitly agrees/confirms to be connected with InterviewBuddy.
+        DO NOT invoke if the user has not confirmed or declined.
+        """
+        logger.info(
+            f"TOOL CALL: transfer_to_interview_buddy (reason='{reason}', target_role='{target_role}')"
+        )
+        # 1. Anisha speaks first in her voice to acknowledge connecting
+        try:
+            if hasattr(self, "session") and self.session:
+                speech = self.session.say(
+                    "Connecting you with InterviewBuddy now!",
+                    allow_interruptions=False,
+                )
+                await speech
+        except Exception as e:
+            logger.debug(f"Anisha transition speech notice: {e}")
+
+        # 2. Switch to InterviewBuddy in Samar's voice
+        chat_ctx = self.chat_ctx.copy(exclude_instructions=True)
+        specialist = InterviewBuddy(
+            chat_ctx=chat_ctx,
+            tts=create_murf_tts(voice="Samar"),
+            voice="Samar",
+            target_role=target_role or "software internship",
+        )
+        logger.info(
+            "TOOL COMPLETE: transfer_to_interview_buddy -> switching to InterviewBuddy (voice='Samar')"
+        )
+        return specialist
 
     @function_tool
     async def lookup_user_memory(
@@ -149,7 +289,7 @@ class Assistant(Agent):
         context: RunContext,
         user_id: str = "",
     ) -> str:
-        """Look up saved user memory facts. Use only when needed to retrieve saved memory."""
+        """Look up saved user memory facts for a RETURNING user who has previously introduced themselves. Call ONLY when resuming a known returning session. NEVER call on a first-time greeting like 'Hello' or 'Namaste'."""
         logger.info("TOOL CALL: lookup_user_memory")
         res = await fn_lookup_user_memory(context, user_id=user_id)
         logger.info("TOOL COMPLETE: lookup_user_memory")
@@ -167,7 +307,7 @@ class Assistant(Agent):
         recurring_challenge: str = "",
         user_id: str = "",
     ) -> str:
-        """Save user memory facts (name, level, goal, challenge)."""
+        """Save user profile details only when the learner explicitly introduces their name or personal details. Do not invoke on general greetings or practice requests."""
         logger.info(
             f"TOOL CALL: save_user_memory (name='{name}', goal='{learning_goal}')"
         )
@@ -202,7 +342,7 @@ class Assistant(Agent):
         context: RunContext,
         user_id: str = "",
     ) -> str:
-        """Summarize saved user memory. Use only when user explicitly asks what is remembered."""
+        """Summarize saved user memory. Call ONLY when user explicitly says 'What do you remember about me?' or similar. NEVER call on greetings or emotional expressions."""
         logger.info(f"TOOL CALL: what_do_you_remember (user_id='{user_id}')")
         res = await fn_what_do_you_remember(context, user_id=user_id)
         logger.info("TOOL COMPLETE: what_do_you_remember")
@@ -214,7 +354,7 @@ class Assistant(Agent):
         context: RunContext,
         query: str = "",
     ) -> str:
-        """Search learning resources for grammar rules, viva tips, or interview prep."""
+        """Search learning resources for curriculum topics, grammar rules, viva tips, or interview prep guides. Call ONLY when user explicitly asks for learning material or advanced grammar. NEVER call for emotional expressions, greetings, or casual conversation."""
         logger.info(f"TOOL CALL: search_learning_resources (query='{query}')")
         res = await fn_search_learning_resources(context, query=query)
         logger.info("TOOL COMPLETE: search_learning_resources")
@@ -227,13 +367,11 @@ class Assistant(Agent):
         level: str = "beginner",
         topic: str = "interview",
     ) -> str:
-        """Return one speaking exercise for requested level and topic. Use only when learner requests practice or a new exercise."""
+        """Fetch a structured practice exercise only when the learner explicitly asks for a structured exercise, quiz, or test. Do not call for normal conversational speaking practice."""
         logger.info(
             f"TOOL CALL: fetch_next_exercise (level='{level}', topic='{topic}')"
         )
         res_dict = fn_get_next_exercise(level=level, topic=topic)
-        import json
-
         res_str = json.dumps(res_dict)
 
         # Mark call outcome as success upon exercise selection
@@ -252,61 +390,36 @@ class Assistant(Agent):
                 mark_call_outcome(
                     call_id=call_id,
                     outcome="success",
-                    completed_activities_inc=1,
+                    reason=f"Selected exercise: {topic} ({level})",
                 )
         except Exception as err:
-            logger.warning(
-                f"Failed to auto-mark call outcome in fetch_next_exercise: {err}"
-            )
+            logger.warning(f"Failed to mark call outcome: {err}")
 
-        logger.info("TOOL COMPLETE: fetch_next_exercise")
+        logger.info(f"TOOL COMPLETE: fetch_next_exercise -> {res_str}")
         return res_str
 
     @function_tool
     async def score_spoken_answer(
         self,
         context: RunContext,
-        question: str = "",
-        answer: str = "",
-        transcript: str = "",
-        practice_topic: str = "",
+        exercise_question: str = "",
+        user_spoken_answer: str = "",
+        target_criteria: str = "grammar, clarity, confidence",
     ) -> str:
-        """Evaluate a completed spoken answer. Use only when learner explicitly asks for feedback, evaluation, or a score."""
+        """Evaluate learner's spoken answer ONLY to an explicit English practice exercise that was previously presented. NEVER call when the user says hello, introduces themselves, expresses emotions, speaks in Hindi/Hinglish, or has not been given an exercise question."""
         logger.info("TOOL CALL: score_spoken_answer")
-        res = await fn_score_spoken_answer(
-            context,
-            question=question,
-            answer=answer,
-            transcript=transcript,
-            practice_topic=practice_topic,
-        )
-        # Mark current call as successful when spoken answer is evaluated
-        try:
-            call_id = (
-                context.proc.userdata.get("call_id")
-                if hasattr(context, "proc") and hasattr(context.proc, "userdata")
-                else None
-            )
-            if call_id:
-                mark_call_outcome(
-                    call_id=call_id, outcome="success", completed_activities_inc=1
-                )
-        except Exception as e:
-            logger.warning(
-                f"Failed to auto-mark call outcome in score_spoken_answer: {e}"
-            )
+        res_dict = _compute_score(user_spoken_answer or exercise_question)
+        res_str = json.dumps(res_dict)
+        logger.info(f"TOOL COMPLETE: score_spoken_answer -> {res_str}")
+        return res_str
 
-        logger.info("TOOL COMPLETE: score_spoken_answer")
-        return res
-
-    @function_tool
     async def mark_call_outcome(
         self,
         context: RunContext,
         outcome: str = "success",
         reason: str = "",
     ) -> str:
-        """Mark the learning outcome of the active call session (success or failed). Call when learner completes a practice activity or interview exercise."""
+        """Internal helper to record call outcome."""
         logger.info(
             f"TOOL CALL: mark_call_outcome (outcome='{outcome}', reason='{reason}')"
         )
@@ -329,13 +442,12 @@ class Assistant(Agent):
             logger.warning(f"Error in mark_call_outcome tool: {e}")
         return f"Call outcome updated to {outcome}."
 
-    @function_tool
     async def end_call(
         self,
         context: RunContext,
-        reason: str = "DECLINED",
+        reason: str = "user_requested_hangup",
     ) -> str:
-        """End the outbound call session cleanly after user declines or asks to disconnect."""
+        """Internal helper to end call cleanly."""
         logger.info(f"TOOL CALL: end_call (reason='{reason}')")
         try:
             sess = getattr(context, "session", None)
@@ -362,24 +474,24 @@ class Assistant(Agent):
         self,
         context: RunContext,
         who_needs_help: str = "",
-        reason_type: str = "learner_distress",
+        reason_type: str = "general_support",
         issue_summary: str = "",
-        checked_by_agent: str = "",
+        checked_by_agent: bool = True,
         urgency: str = "medium",
         preferred_language: str = "English",
-        preferred_contact: str = "phone",
+        preferred_contact: str = "Email",
         user_id: str = "",
     ) -> str:
-        """Create a human help request when learner is upset/anxious or asks for a human teacher. DO NOT call this tool until AFTER the user gives explicit consent (e.g. says yes). FIRST ask the user for permission to create a request."""
+        """Create human support escalation ticket. CRITICAL: NEVER call this tool on the first user message, on initial requests for a teacher, or when the user says no/declines. ONLY call this tool AFTER the learner explicitly says YES or gives clear consent to create a request."""
         logger.info(
-            f"TOOL CALL: create_escalation (reason_type='{reason_type}', urgency='{urgency}')"
+            f"TOOL CALL: create_escalation (reason='{reason_type}', urgency='{urgency}')"
         )
         res = await fn_create_escalation(
-            context=context,
+            context,
             who_needs_help=who_needs_help,
             reason_type=reason_type,
             issue_summary=issue_summary,
-            checked_by_agent=checked_by_agent,
+            checked_by_agent=str(checked_by_agent),
             urgency=urgency,
             preferred_language=preferred_language,
             preferred_contact=preferred_contact,
@@ -388,47 +500,26 @@ class Assistant(Agent):
         logger.info(f"TOOL COMPLETE: create_escalation -> {res}")
         return res
 
-    @function_tool
-    async def transfer_to_interview_buddy(
-        self,
-        context: RunContext,
-        target_role: str = "",
-        user_id: str = "",
-    ) -> tuple[Agent, str]:
-        """Transfer the learner to InterviewBuddy for job interview preparation, mock interviews, and practice questions. Call this immediately when the learner requests interview practice (e.g. 'I want to practice for an interview', 'I have an interview next week') or confirms a switch to InterviewBuddy."""
-        logger.info(
-            f"TOOL CALL: transfer_to_interview_buddy (target_role='{target_role}')"
-        )
-        copied_ctx = (
-            self.chat_ctx.copy(exclude_instructions=True)
-            if hasattr(self, "chat_ctx") and self.chat_ctx
-            else None
-        )
-        interview_agent = InterviewBuddy(
-            chat_ctx=copied_ctx,
-            voice="Samar",
-        )
-        logger.info(
-            "TOOL COMPLETE: transfer_to_interview_buddy -> Handoff to InterviewBuddy (voice='Samar')"
-        )
-        return (
-            interview_agent,
-            "I'll connect you with InterviewBuddy for focused interview practice.",
-        )
 
-
+# ---------------------------------------------------------------------------
+# SPECIALIST AGENT: InterviewBuddy (Murf Falcon · Samar)
+# ---------------------------------------------------------------------------
 class InterviewBuddy(Agent):
-    """InterviewBuddy: Specialist Voice Agent for job interview prep and mock interview practice (Murf voice: 'Samar')."""
+    """
+    InterviewBuddy — Specialist Voice Agent for job interview prep, mock interviews,
+    and spoken feedback (Murf Falcon voice: 'Samar').
+    """
 
     def __init__(
         self,
         chat_ctx: llm.ChatContext | None = None,
         tts: tts.TTS | str | None = None,
         voice: str = "Samar",
+        target_role: str = "",
         **kwargs,
     ) -> None:
         agent_tts = tts
-        if agent_tts is None and voice:
+        if agent_tts is None or isinstance(agent_tts, str):
             try:
                 agent_tts = create_murf_tts(voice=voice)
             except Exception as e:
@@ -441,125 +532,151 @@ class InterviewBuddy(Agent):
             tts=agent_tts if agent_tts is not None else NOT_GIVEN,
             **kwargs,
         )
+        self.target_role = target_role
+        self.voice = voice
+
+    async def on_enter(self) -> None:
+        logger.info(f"Entering InterviewBuddy (voice: Murf Falcon · {self.voice})")
+        try:
+            if (
+                hasattr(self, "session")
+                and self.session
+                and hasattr(self.session, "room_io")
+            ):
+                room = getattr(self.session.room_io, "room", None)
+                if (
+                    room
+                    and hasattr(room, "local_participant")
+                    and room.local_participant
+                ):
+                    await room.local_participant.set_attributes(
+                        {
+                            "active_agent": "interview_buddy",
+                            "agent_name": "InterviewBuddy",
+                            "agent_title": "Job Interview Specialist",
+                            "voice_name": "Murf Falcon · Samar",
+                        }
+                    )
+        except Exception as e:
+            logger.debug(f"Attribute update notice: {e}")
+
+        # Automatically greet the user upon handoff in Samar's voice
+        try:
+            if hasattr(self, "session") and self.session:
+                if self.target_role:
+                    greeting = f"Hi! I'm InterviewBuddy. I'll help you prepare for your interview. I already know that you have a {self.target_role} interview next week, so you don't need to repeat everything. Let's start with a common interview question: Tell me about yourself."
+                else:
+                    greeting = "Hi! I'm InterviewBuddy. I'll help you prepare for your interview. I already know that you have an interview coming up, so you don't need to repeat everything. Let's start with a common interview question: Tell me about yourself."
+                await self.session.say(greeting, allow_interruptions=True)
+        except Exception as e:
+            logger.debug(f"InterviewBuddy greeting trigger notice: {e}")
+
+    @function_tool
+    async def score_spoken_answer(
+        self,
+        context: RunContext,
+        exercise_question: str = "",
+        user_spoken_answer: str = "",
+        target_criteria: str = "grammar, clarity, confidence",
+    ) -> str:
+        """Evaluate a spoken practice answer. Return score, strengths, improvements, and encouragement."""
+        logger.info("TOOL CALL: score_spoken_answer (InterviewBuddy)")
+        res_dict = _compute_score(user_spoken_answer or exercise_question)
+        res_str = json.dumps(res_dict)
+        logger.info(f"TOOL COMPLETE: score_spoken_answer -> {res_str}")
+        return res_str
+
+    @function_tool
+    async def search_learning_resources(
+        self,
+        context: RunContext,
+        query: str = "",
+    ) -> str:
+        """Search learning resources for interview tips, common questions, or preparation guidance."""
+        logger.info(
+            f"TOOL CALL: search_learning_resources (InterviewBuddy query='{query}')"
+        )
+        res = await fn_search_learning_resources(context, query=query)
+        logger.info("TOOL COMPLETE: search_learning_resources (InterviewBuddy)")
+        return res
+
+    @function_tool
+    async def fetch_next_exercise(
+        self,
+        context: RunContext,
+        level: str = "intermediate",
+        topic: str = "interview",
+    ) -> str:
+        """Return one interview speaking exercise or question."""
+        logger.info(
+            f"TOOL CALL: fetch_next_exercise (InterviewBuddy level='{level}', topic='{topic}')"
+        )
+        res_dict = fn_get_next_exercise(level=level, topic=topic)
+        return json.dumps(res_dict)
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        who_needs_help: str = "",
+        reason_type: str = "general_support",
+        issue_summary: str = "",
+        checked_by_agent: bool = True,
+        urgency: str = "medium",
+        preferred_language: str = "English",
+        preferred_contact: str = "Email",
+        user_id: str = "",
+    ) -> str:
+        """Create human support escalation ticket if requested while in InterviewBuddy."""
+        logger.info(
+            f"TOOL CALL: create_escalation (InterviewBuddy reason='{reason_type}', urgency='{urgency}')"
+        )
+        res = fn_create_escalation(
+            context,
+            who_needs_help=who_needs_help,
+            reason_type=reason_type,
+            issue_summary=issue_summary,
+            checked_by_agent=checked_by_agent,
+            urgency=urgency,
+            preferred_language=preferred_language,
+            preferred_contact=preferred_contact,
+            user_id=user_id,
+        )
+        logger.info(f"TOOL COMPLETE: create_escalation (InterviewBuddy) -> {res}")
+        return res
 
     @function_tool
     async def transfer_to_bolbuddy(
         self,
         context: RunContext,
-        reason: str = "",
+        reason: str = "general_conversation",
         user_id: str = "",
-    ) -> tuple[Agent, str]:
-        """Transfer the learner back to BolBuddy for general English practice, casual conversation, and everyday topics."""
+    ) -> Agent:
+        """Transfer back to BolBuddy whenever the conversation moves outside of job interview preparation, or the learner asks general English/grammar questions, makes small talk/casual conversation, or finishes interview practice."""
         logger.info(f"TOOL CALL: transfer_to_bolbuddy (reason='{reason}')")
-        copied_ctx = (
-            self.chat_ctx.copy(exclude_instructions=True)
-            if hasattr(self, "chat_ctx") and self.chat_ctx
-            else None
-        )
-        bolbuddy_agent = Assistant(
-            chat_ctx=copied_ctx,
+        # 1. Samar speaks first in his voice to acknowledge handback
+        try:
+            if hasattr(self, "session") and self.session:
+                speech = self.session.say(
+                    "Of course! Handing you back to BolBuddy.",
+                    allow_interruptions=False,
+                )
+                await speech
+        except Exception as e:
+            logger.debug(f"Samar transition speech notice: {e}")
+
+        # 2. Switch to BolBuddy in Anisha's voice
+        chat_ctx = self.chat_ctx.copy(exclude_instructions=True)
+        main_agent = Assistant(
+            chat_ctx=chat_ctx,
             tts=create_murf_tts(voice="Anisha"),
             voice="Anisha",
+            is_handoff_return=True,
         )
         logger.info(
-            "TOOL COMPLETE: transfer_to_bolbuddy -> Handoff to BolBuddy (voice='Anisha')"
+            "TOOL COMPLETE: transfer_to_bolbuddy -> switching back to BolBuddy (voice='Anisha')"
         )
-        return (
-            bolbuddy_agent,
-            "I'll connect you back with BolBuddy for general English practice.",
-        )
-
-
-def _clean_tts_text(text: str) -> str:
-    """Sanitize spoken text output to ensure no raw tool tags, XML, JSON, or formatting noise reach TTS audio synthesis."""
-    if not text:
-        return ""
-    import re
-
-    # Remove XML / HTML tags like <a function=...>, <function=...>, </function>, <tool_call>, etc.
-    text = re.sub(r"<[^>]+>", "", text)
-    # Remove raw JSON structures {"...": ...}
-    text = re.sub(r"\{[\s\S]*?\}", "", text)
-    # Remove raw dict string representations like {'name': 'Ramesh', ...}
-    text = re.sub(r"'[\w_]+':\s*'[^']+'", "", text)
-    # Remove leaked tool names or metadata parameter labels
-    text = re.sub(
-        r"\b(save_user_memory|lookup_user_memory|forget_my_data|what_do_you_remember|fetch_next_exercise|score_spoken_answer|search_learning_resources|skill_level|topic_practiced|recurring_challenge|user_id|master_user)\b",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    # Remove random slashes, backslashes, hashes, underscores, or repeated punctuation noise (/ , \ _ # *)
-    text = re.sub(r"[\/\\\_\|\#\*\=\+\@\%\^\&\~\`]+", " ", text)
-    text = re.sub(r"\.{2,}", ".", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
-    """Keep chat context history trimmed to prevent context window token bloat and reduce LLM response latency."""
-    try:
-        hist = getattr(session, "history", None) or getattr(session, "chat_ctx", None)
-        if hist and hasattr(hist, "truncate"):
-            hist.truncate(max_items=max_turns)
-            logger.info("Pruned chat context history to prevent token bloat.")
-        elif hist and hasattr(hist, "messages"):
-            msgs = hist.messages
-            if len(msgs) > max_turns + 1:
-                system_msg = (
-                    [msgs[0]]
-                    if (
-                        msgs
-                        and getattr(msgs[0], "role", None) in ("system", "developer")
-                    )
-                    else []
-                )
-                recent_msgs = msgs[-max_turns:]
-                hist.messages = system_msg + [
-                    m for m in recent_msgs if m not in system_msg
-                ]
-                logger.info(f"Pruned chat history to {len(hist.messages)} messages.")
-    except Exception as e:
-        logger.warning(f"Failed to prune chat history: {e}")
-
-
-def _clean_tts_text(text: str) -> str:
-    """Sanitize spoken text output to ensure no raw tool tags, XML, or JSON reach TTS audio synthesis."""
-    if not text:
-        return ""
-    import re
-
-    # 1. Remove XML/function tags e.g. </function>, <function=...>, <tool_call...>, </tool_call>
-    text = re.sub(
-        r"</?(?:function|tool_call|tool)[^>]*>", "", text, flags=re.IGNORECASE
-    )
-    text = re.sub(r"<[^>]+>", "", text)
-
-    # 2. Remove raw function syntax e.g. fetch_next_exercise>{"level": ...} or tool_name>{...}
-    text = re.sub(r"\b\w+>\{[\s\S]*?\}", "", text)
-    text = re.sub(r"\b\w+>\{[\s\S]*", "", text)
-
-    # 3. Remove any JSON structures or raw parameter dictionaries (complete OR unclosed)
-    text = re.sub(
-        r"\{\s*\"(?:name|parameters|level|topic|who_needs_help|reason_type|issue_summary|checked_by_agent|urgency|preferred_language|preferred_contact|user_id)\"[\s\S]*",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(r"\{[\s\S]*?\}", "", text)
-
-    # 4. Remove raw function calls e.g. create_escalation(...), fetch_next_exercise>...
-    text = re.sub(
-        r"\b(?:create_escalation|score_spoken_answer|fetch_next_exercise|lookup_user_memory|save_user_memory|forget_my_data|what_do_you_remember|search_learning_resources|mark_call_outcome)\b[>\s\S]*",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(r"\b\w+_\w+\([^)]*\)", "", text)
-    text = re.sub(r"function\s*[:=]?\s*\w+", "", text, flags=re.IGNORECASE)
-
-    # 5. Strip markdown formatting symbols
-    text = re.sub(r"[`*_~#]", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+        return main_agent
 
 
 server = AgentServer(job_executor_type=JobExecutorType.THREAD)
@@ -592,7 +709,7 @@ server.setup_fnc = prewarm
 async def my_agent(ctx: JobContext):
     # Logging setup
     ctx.log_context_fields = {
-        "room": ctx.room.name,
+        "room": ctx.room.name if ctx.room and ctx.room.name else "unknown_room",
     }
 
     # LLM Initialization: Multi-provider support (OpenRouter -> NVIDIA -> Groq -> Google Gemini)
@@ -602,64 +719,97 @@ async def my_agent(ctx: JobContext):
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     google_key = os.getenv("GOOGLE_API_KEY", "").strip()
 
-    if provider == "openrouter" or (not provider and openrouter_key):
-        openrouter_model = os.getenv(
-            "OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"
-        ).strip()
-        logger.info(f"LLM Provider: OpenRouter ({openrouter_model})")
-        llm = openai.LLM(
-            model=openrouter_model,
-            base_url="https://openrouter.ai/api/v1",
-            api_key=openrouter_key,
-            temperature=0.7,
-            parallel_tool_calls=False,
-            timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
+    max_tokens = int(os.getenv("LLM_MAX_TOKENS", "1000"))
+
+    try:
+        if provider == "openrouter" or (not provider and openrouter_key):
+            openrouter_model = os.getenv(
+                "OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"
+            ).strip()
+            logger.info(f"LLM Provider: OpenRouter ({openrouter_model}) [max_tokens={max_tokens}]")
+            llm_inst = openai.LLM(
+                model=openrouter_model,
+                base_url="https://openrouter.ai/api/v1",
+                api_key=openrouter_key,
+                temperature=0.3,
+                max_completion_tokens=max_tokens,
+                parallel_tool_calls=False,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
+            )
+        elif provider == "nvidia" or (not provider and nvidia_key):
+            nvidia_model = os.getenv(
+                "NVIDIA_MODEL", "meta/llama-3.1-8b-instruct"
+            ).strip()
+            nvidia_base_url = os.getenv(
+                "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"
+            ).strip()
+            logger.info(f"LLM Provider: NVIDIA API ({nvidia_model}) [max_tokens={max_tokens}]")
+            llm_inst = openai.LLM(
+                model=nvidia_model,
+                base_url=nvidia_base_url,
+                api_key=nvidia_key,
+                temperature=0.3,
+                top_p=1.0,
+                max_completion_tokens=max_tokens,
+                parallel_tool_calls=False,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
+            )
+        elif provider == "groq" or (not provider and groq_key):
+            groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
+            logger.info(f"LLM Provider: Groq API ({groq_model}) [max_tokens={max_tokens}]")
+            llm_inst = openai.LLM(
+                model=groq_model,
+                base_url="https://api.groq.com/openai/v1",
+                api_key=groq_key,
+                temperature=0.3,
+                max_completion_tokens=max_tokens,
+                parallel_tool_calls=False,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
+            )
+        elif provider == "google" or (not provider and google_key):
+            logger.info("LLM Provider: Google Gemini (gemini-2.0-flash)")
+            llm_inst = google.LLM(model="gemini-2.0-flash")
+        else:
+            raise ValueError(
+                "No valid LLM API key (OpenRouter, NVIDIA, Groq, or Google) found in environment."
+            )
+    except Exception as llm_init_err:
+        logger.warning(
+            f"Failed to initialize primary LLM provider '{provider}': {llm_init_err}. Attempting fallback provider..."
         )
-    elif provider == "nvidia" or (not provider and nvidia_key):
-        nvidia_model = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct").strip()
-        nvidia_base_url = os.getenv(
-            "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"
-        ).strip()
-        logger.info(f"LLM Provider: NVIDIA API ({nvidia_model})")
-        llm = openai.LLM(
-            model=nvidia_model,
-            base_url=nvidia_base_url,
-            api_key=nvidia_key,
-            temperature=0.7,
-            top_p=1.0,
-            parallel_tool_calls=False,
-            timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
-        )
-    elif provider == "groq" or (not provider and groq_key):
-        groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
-        logger.info(f"LLM Provider: Groq API ({groq_model})")
-        llm = openai.LLM(
-            model=groq_model,
-            base_url="https://api.groq.com/openai/v1",
-            api_key=groq_key,
-            temperature=0.7,
-            parallel_tool_calls=False,
-            timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
-        )
-    elif provider == "google" or (not provider and google_key):
-        logger.info("LLM Provider: Google Gemini (gemini-2.0-flash)")
-        llm = google.LLM(model="gemini-2.0-flash")
-    else:
-        raise ValueError(
-            "No valid LLM API key (OpenRouter, NVIDIA, Groq, or Google) found in environment."
-        )
+        if google_key:
+            logger.info("Fallback LLM Provider: Google Gemini (gemini-2.0-flash)")
+            llm_inst = google.LLM(model="gemini-2.0-flash")
+        elif groq_key:
+            logger.info(f"Fallback LLM Provider: Groq API (llama-3.1-8b-instant) [max_tokens={max_tokens}]")
+            llm_inst = openai.LLM(
+                model="llama-3.1-8b-instant",
+                base_url="https://api.groq.com/openai/v1",
+                api_key=groq_key,
+                temperature=0.7,
+                max_completion_tokens=max_tokens,
+                parallel_tool_calls=False,
+            )
+        else:
+            raise llm_init_err
 
     # Built-in text transforms to strip markdown and emojis from spoken audio
     tts_transforms = ["filter_markdown", "filter_emoji"]
 
-    # Set up a voice AI pipeline matching official Murf multilingual recommendation
+    # Set up a shared voice AI pipeline matching official Murf multilingual recommendation
+    # Default TTS voice is Anisha (BolBuddy); specialist agent switches to Samar (InterviewBuddy)
     session_kwargs = {
         # Speech-to-text (STT) via Deepgram Nova-3 with multilingual support (en + hi + hinglish)
         "stt": deepgram.STT(model="nova-3", language="multi", smart_format=True),
-        # A Large Language Model (LLM) processing user input and executing function tools
-        "llm": llm,
+        # Large Language Model (LLM) processing user input and executing function tools
+        "llm": llm_inst,
         # Text-to-speech (TTS) via Murf Falcon (min_sentence_len=1 for immediate audio streaming)
-        "tts": create_murf_tts(voice="Anisha"),
+        "tts": murf.TTS(
+            voice="Anisha",
+            style="Conversation",
+            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=1),
+            text_pacing=True,
+        ),
         "vad": ctx.proc.userdata["vad"],
         # Responsive endpointing delays (0.15s silence threshold, 0.5s max phrase window)
         "min_endpointing_delay": 0.15,
@@ -674,18 +824,17 @@ async def my_agent(ctx: JobContext):
 
     @session.on("user_input_transcribed")
     def _on_user_input_transcribed(ev):
-        if getattr(ev, "is_final", False):
-            _prune_history(session, max_turns=6)
-            logger.info("USER TURN COMMITTED")
-            logger.info("LLM GENERATION STARTING...")
+        _prune_history(session, max_turns=6)
+        logger.info("USER TURN COMMITTED")
+        logger.info("LLM GENERATION STARTING...")
 
     @session.on("agent_state_changed")
     def _on_agent_state_changed(ev):
-        new_state = getattr(ev, "new_state", "")
-        old_state = getattr(ev, "old_state", "")
-        if new_state == "speaking":
+        new_state = str(getattr(ev, "new_state", getattr(ev, "state", ev))).lower()
+        old_state = str(getattr(ev, "old_state", "")).lower()
+        if "speaking" in new_state:
             logger.info("LLM GENERATION COMPLETE -> MURF TTS STARTING...")
-        elif old_state == "speaking" and new_state == "listening":
+        elif "speaking" in old_state and "listening" in new_state:
             logger.info("MURF TTS AUDIO PLAYBACK COMPLETE")
 
     @session.on("user_state_changed")
@@ -721,7 +870,7 @@ async def my_agent(ctx: JobContext):
     # Join the room and connect to the user first
     await ctx.connect()
 
-    # Start the session, which initializes the voice pipeline and warms up the models
+    # Start the session with BolBuddy (Assistant) as default active agent
     session_started = asyncio.create_task(
         session.start(
             agent=Assistant(),
@@ -732,7 +881,7 @@ async def my_agent(ctx: JobContext):
 
     # Track user interaction and deliver initial personalized voice greeting
     try:
-        participant = await ctx.wait_for_participant()
+        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=5.0)
         user_id = (
             participant.identity
             if participant and participant.identity

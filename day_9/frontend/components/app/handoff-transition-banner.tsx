@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { ArrowRight, CheckCircle, Loader2, Sparkles } from 'lucide-react';
-import { motion } from 'motion/react';
-import type { HandoffTransitionPhase } from '@/hooks/useActiveAgent';
+import React from "react";
+import { ArrowRight, CheckCircle, Loader2, Sparkles } from "lucide-react";
+import { motion } from "motion/react";
+import type { HandoffTransitionPhase } from "@/hooks/useActiveAgent";
 
 interface HandoffTransitionBannerProps {
   phase: HandoffTransitionPhase;
@@ -14,26 +14,28 @@ interface HandoffTransitionBannerProps {
 
 export function HandoffTransitionBanner({
   phase,
-  fromAgentName = 'BolBuddy',
-  targetAgentName = 'InterviewBuddy',
-  voiceName = 'Samar',
+  fromAgentName = "BolBuddy",
+  targetAgentName = "InterviewBuddy",
+  voiceName = "Samar",
 }: HandoffTransitionBannerProps) {
-  if (phase === 'idle') return null;
+  if (phase === "idle") return null;
 
-  const isConnecting = phase === 'connecting';
+  const isConnecting = phase === "connecting";
 
   return (
     <motion.div
       initial={{ opacity: 0, y: -16, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -16, scale: 0.95 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
       className="mb-4 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-teal-300/80 bg-gradient-to-r from-teal-50 via-indigo-50 to-blue-50 px-4 py-3 shadow-lg shadow-teal-900/10 backdrop-blur-md"
     >
       <div className="flex items-center gap-3">
         <div
           className={`flex size-8 shrink-0 items-center justify-center rounded-xl ${
-            isConnecting ? 'bg-teal-600 text-white' : 'bg-emerald-600 text-white'
+            isConnecting
+              ? "bg-teal-600 text-white"
+              : "bg-emerald-600 text-white"
           }`}
         >
           {isConnecting ? (
@@ -61,12 +63,15 @@ export function HandoffTransitionBanner({
               <span className="flex items-center gap-1">
                 <span>{fromAgentName}</span>
                 <ArrowRight className="size-2.5 text-slate-400" />
-                <span className="font-semibold text-teal-800">{targetAgentName}</span>
+                <span className="font-semibold text-teal-800">
+                  {targetAgentName}
+                </span>
               </span>
             ) : (
               <span>
-                Murf Falcon · <span className="font-bold text-teal-800">{voiceName}</span> (Indian
-                Voice) active
+                Murf Falcon ·{" "}
+                <span className="font-bold text-teal-800">{voiceName}</span>{" "}
+                (Indian Voice) active
               </span>
             )}
           </p>

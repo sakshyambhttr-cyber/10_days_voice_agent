@@ -15,12 +15,13 @@ import { motion } from 'motion/react';
 import {
   useAgent,
   useLocalParticipant,
+  useParticipantAttributes,
   useSessionContext,
   useSessionMessages,
   useVoiceAssistant,
 } from '@livekit/components-react';
 import { Button } from '@/components/ui/button';
-import { useActiveAgent } from '@/hooks/useActiveAgent';
+import { ActiveAgentType, useActiveAgent } from '@/hooks/useActiveAgent';
 import { cn } from '@/lib/shadcn/utils';
 import { cleanChatMessage, getPersistentUserId } from '@/lib/utils';
 import { EvaluationFeedback, FeedbackCard } from './feedback-card';
@@ -33,7 +34,9 @@ import { VoiceOrb, VoiceState } from './voice-orb';
 export function BolBuddySessionView() {
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
-  const { state: agentState } = useAgent();
+  const { agent, state: agentState } = useAgent();
+  const { attributes } = useParticipantAttributes({ participant: agent });
+  const activeAgentFromAttr = (attributes?.active_agent as ActiveAgentType) || undefined;
   const { localParticipant } = useLocalParticipant();
   const { state: voiceState, audioTrack } = useVoiceAssistant();
   const isMuted = localParticipant ? !localParticipant.isMicrophoneEnabled : false;
@@ -46,7 +49,7 @@ export function BolBuddySessionView() {
     transitionPhase,
     showSpecialistIntro,
     dismissSpecialistIntro,
-  } = useActiveAgent(messages);
+  } = useActiveAgent(messages, activeAgentFromAttr);
 
   const isInterviewBuddy = activeAgent === 'interview_buddy';
 
@@ -240,7 +243,7 @@ export function BolBuddySessionView() {
       {/* Top Bar Header */}
       <header
         className={cn(
-          'z-20 flex items-center justify-between border-b px-6 py-4 backdrop-blur-md transition-colors duration-300',
+          'z-30 flex shrink-0 items-center justify-between border-b px-6 py-3.5 backdrop-blur-md transition-colors duration-300',
           isInterviewBuddy
             ? 'border-teal-200/70 bg-gradient-to-r from-teal-50/90 via-white/80 to-blue-50/90'
             : 'border-slate-200/60 bg-white/80'
@@ -315,7 +318,12 @@ export function BolBuddySessionView() {
             variant="ghost"
             size="sm"
             onClick={() => setShowTranscript(!showTranscript)}
-            className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+            className={cn(
+              'text-xs font-semibold transition-all',
+              showTranscript
+                ? 'bg-indigo-100/70 text-indigo-900 hover:bg-indigo-200/70'
+                : 'text-slate-600 hover:text-slate-900'
+            )}
           >
             <MessageSquare className="mr-1.5 size-4" />
             {showTranscript ? 'Hide' : 'Transcript'}
@@ -335,7 +343,7 @@ export function BolBuddySessionView() {
       </header>
 
       {/* Main Voice Interaction Area */}
-      <main className="relative mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center px-6 py-4">
+      <main className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col items-center justify-between overflow-y-auto px-4 py-3 sm:px-6">
         {/* Handoff Transition Shimmer Banner */}
         <HandoffTransitionBanner
           phase={transitionPhase}
@@ -344,7 +352,7 @@ export function BolBuddySessionView() {
           voiceName={targetConfig.voiceName}
         />
 
-        {/* Specialist Intro Card (Dismissible / Non-blocking) */}
+        {/* Specialist Intro Card (Dismissible / Auto-fading) */}
         {isInterviewBuddy && showSpecialistIntro && (
           <SpecialistIntroCard onDismiss={dismissSpecialistIntro} />
         )}
@@ -354,11 +362,11 @@ export function BolBuddySessionView() {
           <motion.div
             initial={{ opacity: 0, y: -15 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-4 flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 shadow-sm backdrop-blur-md"
+            className="mb-3 flex w-full max-w-md shrink-0 items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-2.5 shadow-sm backdrop-blur-md"
           >
             <div className="flex items-center gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-700">
-                <LifeBuoy className="size-5" />
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-700">
+                <LifeBuoy className="size-4" />
               </div>
               <div className="text-left">
                 <div className="flex items-center gap-2">
@@ -368,8 +376,7 @@ export function BolBuddySessionView() {
                   </span>
                 </div>
                 <p className="text-[11px] font-medium text-slate-600">
-                  A human teacher can review it through the support system. You can continue
-                  practicing while you wait!
+                  A human teacher will review it. You can continue practicing!
                 </p>
               </div>
             </div>
@@ -377,7 +384,7 @@ export function BolBuddySessionView() {
         )}
 
         {/* Animated Voice Orb Visual Center */}
-        <div className="my-auto flex flex-col items-center justify-center space-y-5 text-center">
+        <div className="my-auto flex flex-col items-center justify-center space-y-4 py-2 text-center">
           {/* Prominent Active Agent Interaction Pill */}
           <motion.div
             key={agentConfig.name}
@@ -434,7 +441,7 @@ export function BolBuddySessionView() {
           </div>
 
           {/* State-Aware Microphone Control Button */}
-          <div className="pt-2">
+          <div className="pt-1">
             <MicButton
               state={activeState}
               isMuted={isMuted}
@@ -446,11 +453,11 @@ export function BolBuddySessionView() {
         </div>
 
         {/* Live Transcript Stream (Preserves Full Conversation Across Handoff) */}
-        {showTranscript && messages.length > 0 && (
+        {showTranscript && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-4 flex h-48 w-full max-w-2xl flex-col rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-lg backdrop-blur-md md:h-56"
+            className="my-3 flex h-44 w-full max-w-2xl shrink-0 flex-col rounded-2xl border border-slate-200/80 bg-white/95 p-3.5 shadow-lg backdrop-blur-md md:h-52"
           >
             <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
               <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
@@ -474,56 +481,67 @@ export function BolBuddySessionView() {
 
             <div
               ref={scrollAreaRef}
-              className="scrollbar-thin scrollbar-thumb-slate-200 flex-1 space-y-3 overflow-y-auto pr-2"
+              className="scrollbar-thin scrollbar-thumb-slate-200 flex-1 space-y-2.5 overflow-y-auto pr-2"
             >
-              {messages.map((msg, idx) => {
-                const isUser = msg.from?.isLocal;
-                const cleanedText = cleanChatMessage(msg.message);
-                if (!cleanedText) return null;
+              {messages.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                  No messages yet. Speak to begin your conversation!
+                </div>
+              ) : (
+                messages.map((msg, idx) => {
+                  const isUser = msg.from?.isLocal;
+                  const rawText =
+                    msg.message ||
+                    (msg as { text?: string }).text ||
+                    (msg as { transcript?: string }).transcript ||
+                    '';
+                  const cleanedText = cleanChatMessage(rawText);
+                  if (!cleanedText) return null;
 
-                // Determine if this specific message was from InterviewBuddy
-                const lowerText = cleanedText.toLowerCase();
-                const isInterviewBuddyMsg =
-                  !isUser &&
-                  (lowerText.includes('interviewbuddy') ||
-                    lowerText.includes('interview practice') ||
-                    (isInterviewBuddy && idx >= messages.length - 3));
+                  // Determine if this specific message was from InterviewBuddy
+                  const lowerText = cleanedText.toLowerCase();
+                  const isInterviewBuddyMsg =
+                    !isUser &&
+                    (lowerText.includes('interviewbuddy') ||
+                      lowerText.includes('interview practice') ||
+                      (isInterviewBuddy && idx >= messages.length - 3));
 
-                return (
-                  <div
-                    key={idx}
-                    className={cn(
-                      'flex max-w-[85%] items-start gap-2.5 text-xs leading-relaxed',
-                      isUser ? 'ml-auto flex-row-reverse' : 'mr-auto'
-                    )}
-                  >
+                  return (
                     <div
+                      key={msg.id || idx}
                       className={cn(
-                        'flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
-                        isUser
-                          ? 'bg-slate-200 text-slate-700'
-                          : isInterviewBuddyMsg
-                            ? 'bg-gradient-to-br from-blue-700 to-teal-700 text-white'
-                            : 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white'
+                        'flex max-w-[85%] items-start gap-2.5 text-xs leading-relaxed',
+                        isUser ? 'ml-auto flex-row-reverse' : 'mr-auto'
                       )}
                     >
-                      {isUser ? 'You' : isInterviewBuddyMsg ? 'IB' : 'BB'}
+                      <div
+                        className={cn(
+                          'flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-xs',
+                          isUser
+                            ? 'bg-slate-200 text-slate-700'
+                            : isInterviewBuddyMsg
+                              ? 'bg-gradient-to-br from-blue-700 to-teal-700 text-white'
+                              : 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white'
+                        )}
+                      >
+                        {isUser ? 'You' : isInterviewBuddyMsg ? 'IB' : 'BB'}
+                      </div>
+                      <div
+                        className={cn(
+                          'rounded-2xl border p-2.5 shadow-xs',
+                          isUser
+                            ? 'rounded-tr-xs border-indigo-600 bg-indigo-600 text-white'
+                            : isInterviewBuddyMsg
+                              ? 'rounded-tl-xs border-teal-200/80 bg-teal-50/80 text-slate-900'
+                              : 'rounded-tl-xs border-slate-200/60 bg-slate-100 text-slate-900'
+                        )}
+                      >
+                        {cleanedText}
+                      </div>
                     </div>
-                    <div
-                      className={cn(
-                        'rounded-2xl border p-3',
-                        isUser
-                          ? 'rounded-tr-xs border-indigo-600 bg-indigo-600 text-white'
-                          : isInterviewBuddyMsg
-                            ? 'rounded-tl-xs border-teal-200/80 bg-teal-50/80 text-slate-900'
-                            : 'rounded-tl-xs border-slate-200/60 bg-slate-100 text-slate-900'
-                      )}
-                    >
-                      {cleanedText}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </motion.div>
         )}
@@ -537,13 +555,14 @@ export function BolBuddySessionView() {
         onMemoryCleared={() => setMemory(null)}
       />
 
-      {/* Bottom Control Bar */}
-      <footer className="z-20 flex items-center justify-center gap-4 border-t border-slate-200/60 bg-white/90 p-4 backdrop-blur-md">
+      {/* Bottom Control Bar - Sticky & Pinned */}
+      <footer className="sticky bottom-0 z-30 flex shrink-0 items-center justify-center gap-4 border-t border-slate-200/80 bg-white/95 p-3.5 shadow-lg backdrop-blur-md">
         <Button
           size="lg"
           variant={isMuted ? 'destructive' : 'outline'}
           onClick={toggleMicrophone}
-          className="size-12 cursor-pointer rounded-full shadow-sm"
+          className="size-12 cursor-pointer rounded-full shadow-sm transition-transform active:scale-95"
+          title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         >
           {isMuted ? <MicOff className="size-5" /> : <Mic className="size-5 text-indigo-600" />}
         </Button>
@@ -552,7 +571,8 @@ export function BolBuddySessionView() {
           size="lg"
           variant="destructive"
           onClick={handleEndCall}
-          className="flex cursor-pointer items-center gap-2 rounded-full bg-rose-600 px-6 text-xs font-bold text-white shadow-md hover:bg-rose-700"
+          className="flex cursor-pointer items-center gap-2 rounded-full bg-rose-600 px-6 text-xs font-bold text-white shadow-md transition-transform hover:bg-rose-700 active:scale-95"
+          title="Disconnect from session"
         >
           <PhoneOff className="size-4" />
           <span>End Conversation</span>

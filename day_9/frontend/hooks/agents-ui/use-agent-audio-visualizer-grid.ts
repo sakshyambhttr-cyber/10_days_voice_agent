@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
-import { type AgentState } from '@livekit/components-react';
+import { useEffect, useState } from "react";
+import { type AgentState } from "@livekit/components-react";
 
 export interface Coordinate {
   x: number;
   y: number;
 }
 
-export function generateConnectingSequence(rows: number, columns: number, radius: number) {
+export function generateConnectingSequence(
+  rows: number,
+  columns: number,
+  radius: number,
+) {
   const seq = [];
   const centerY = Math.floor(rows / 2);
 
@@ -47,7 +51,17 @@ export function generateListeningSequence(rows: number, columns: number) {
   const center = { x: Math.floor(columns / 2), y: Math.floor(rows / 2) };
   const noIndex = { x: -1, y: -1 };
 
-  return [center, noIndex, noIndex, noIndex, noIndex, noIndex, noIndex, noIndex, noIndex];
+  return [
+    center,
+    noIndex,
+    noIndex,
+    noIndex,
+    noIndex,
+    noIndex,
+    noIndex,
+    noIndex,
+    noIndex,
+  ];
 }
 
 export function generateThinkingSequence(rows: number, columns: number) {
@@ -68,7 +82,7 @@ export function useAgentAudioVisualizerGridAnimator(
   rows: number,
   columns: number,
   interval: number,
-  radius?: number
+  radius?: number,
 ): Coordinate {
   const [index, setIndex] = useState(0);
   const [sequence, setSequence] = useState<Coordinate[]>(() => [
@@ -83,12 +97,14 @@ export function useAgentAudioVisualizerGridAnimator(
       ? Math.min(radius, Math.floor(Math.max(rows, columns) / 2))
       : Math.floor(Math.max(rows, columns) / 2);
 
-    if (state === 'thinking') {
+    if (state === "thinking") {
       setSequence(generateThinkingSequence(rows, columns));
-    } else if (state === 'connecting' || state === 'initializing') {
-      const sequence = [...generateConnectingSequence(rows, columns, clampedRadius)];
+    } else if (state === "connecting" || state === "initializing") {
+      const sequence = [
+        ...generateConnectingSequence(rows, columns, clampedRadius),
+      ];
       setSequence(sequence);
-    } else if (state === 'listening') {
+    } else if (state === "listening") {
       setSequence(generateListeningSequence(rows, columns));
     } else {
       setSequence([{ x: Math.floor(columns / 2), y: Math.floor(rows / 2) }]);
@@ -97,7 +113,7 @@ export function useAgentAudioVisualizerGridAnimator(
   }, [state, rows, columns, radius]);
 
   useEffect(() => {
-    if (state === 'speaking') {
+    if (state === "speaking") {
       return;
     }
 
@@ -111,6 +127,9 @@ export function useAgentAudioVisualizerGridAnimator(
   }, [interval, columns, rows, state, sequence.length]);
 
   return (
-    sequence[index % sequence.length] ?? { x: Math.floor(columns / 2), y: Math.floor(rows / 2) }
+    sequence[index % sequence.length] ?? {
+      x: Math.floor(columns / 2),
+      y: Math.floor(rows / 2),
+    }
   );
 }

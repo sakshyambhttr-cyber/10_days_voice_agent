@@ -1,20 +1,23 @@
-'use client';
+"use client";
 
-import React from 'react';
-import type { LocalAudioTrack, RemoteAudioTrack } from 'livekit-client';
-import { Loader2, Mic, MicOff, Volume2 } from 'lucide-react';
-import { motion, useReducedMotion } from 'motion/react';
-import type { AgentState, TrackReferenceOrPlaceholder } from '@livekit/components-react';
-import { AgentAudioVisualizerAura } from '@/components/agents-ui/agent-audio-visualizer-aura';
-import { cn } from '@/lib/shadcn/utils';
+import React from "react";
+import type { LocalAudioTrack, RemoteAudioTrack } from "livekit-client";
+import { Loader2, Mic, MicOff, Volume2 } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import type {
+  AgentState,
+  TrackReferenceOrPlaceholder,
+} from "@livekit/components-react";
+import { AgentAudioVisualizerAura } from "@/components/agents-ui/agent-audio-visualizer-aura";
+import { cn } from "@/lib/shadcn/utils";
 
 export type VoiceState =
-  | 'idle'
-  | 'connecting'
-  | 'listening'
-  | 'thinking'
-  | 'speaking'
-  | 'disconnected';
+  | "idle"
+  | "connecting"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "disconnected";
 
 interface VoiceOrbProps {
   state: VoiceState | AgentState;
@@ -25,7 +28,7 @@ interface VoiceOrbProps {
 }
 
 export function VoiceOrb({
-  state = 'idle',
+  state = "idle",
   isMuted = false,
   audioTrack,
   onClick,
@@ -34,63 +37,63 @@ export function VoiceOrb({
   const shouldReduceMotion = useReducedMotion();
 
   const normalizedState: VoiceState =
-    (state === 'initializing' ? 'connecting' : (state as VoiceState)) || 'idle';
+    (state === "initializing" ? "connecting" : (state as VoiceState)) || "idle";
 
   // Get status color tokens
   const getGlowColor = () => {
     switch (normalizedState) {
-      case 'connecting':
-        return 'from-amber-400/30 via-indigo-500/30 to-purple-600/30';
-      case 'listening':
+      case "connecting":
+        return "from-amber-400/30 via-indigo-500/30 to-purple-600/30";
+      case "listening":
         return isMuted
-          ? 'from-rose-500/20 via-slate-500/20 to-indigo-500/20'
-          : 'from-purple-500/40 via-indigo-500/40 to-blue-500/30';
-      case 'thinking':
-        return 'from-indigo-500/40 via-purple-600/40 to-slate-700/30';
-      case 'speaking':
-        return 'from-emerald-400/40 via-teal-500/40 to-indigo-600/30';
-      case 'disconnected':
-      case 'idle':
+          ? "from-rose-500/20 via-slate-500/20 to-indigo-500/20"
+          : "from-purple-500/40 via-indigo-500/40 to-blue-500/30";
+      case "thinking":
+        return "from-indigo-500/40 via-purple-600/40 to-slate-700/30";
+      case "speaking":
+        return "from-emerald-400/40 via-teal-500/40 to-indigo-600/30";
+      case "disconnected":
+      case "idle":
       default:
-        return 'from-indigo-400/20 via-purple-500/20 to-slate-400/10';
+        return "from-indigo-400/20 via-purple-500/20 to-slate-400/10";
     }
   };
 
   const getOrbGradient = () => {
     switch (normalizedState) {
-      case 'connecting':
-        return 'from-amber-500 via-indigo-600 to-purple-700';
-      case 'listening':
+      case "connecting":
+        return "from-amber-500 via-indigo-600 to-purple-700";
+      case "listening":
         return isMuted
-          ? 'from-slate-700 via-slate-800 to-rose-950'
-          : 'from-indigo-600 via-purple-600 to-indigo-800';
-      case 'thinking':
-        return 'from-purple-700 via-indigo-800 to-slate-900';
-      case 'speaking':
-        return 'from-emerald-600 via-teal-600 to-indigo-800';
-      case 'disconnected':
-      case 'idle':
+          ? "from-slate-700 via-slate-800 to-rose-950"
+          : "from-indigo-600 via-purple-600 to-indigo-800";
+      case "thinking":
+        return "from-purple-700 via-indigo-800 to-slate-900";
+      case "speaking":
+        return "from-emerald-600 via-teal-600 to-indigo-800";
+      case "disconnected":
+      case "idle":
       default:
-        return 'from-indigo-600 via-purple-600 to-indigo-900';
+        return "from-indigo-600 via-purple-600 to-indigo-900";
     }
   };
 
   const getBorderRing = () => {
     switch (normalizedState) {
-      case 'connecting':
-        return 'border-amber-400/50 shadow-amber-500/20';
-      case 'listening':
+      case "connecting":
+        return "border-amber-400/50 shadow-amber-500/20";
+      case "listening":
         return isMuted
-          ? 'border-rose-400/40 shadow-rose-500/20'
-          : 'border-purple-400/50 shadow-purple-500/30';
-      case 'thinking':
-        return 'border-indigo-400/60 shadow-indigo-500/30';
-      case 'speaking':
-        return 'border-emerald-400/60 shadow-emerald-500/30';
-      case 'disconnected':
-      case 'idle':
+          ? "border-rose-400/40 shadow-rose-500/20"
+          : "border-purple-400/50 shadow-purple-500/30";
+      case "thinking":
+        return "border-indigo-400/60 shadow-indigo-500/30";
+      case "speaking":
+        return "border-emerald-400/60 shadow-emerald-500/30";
+      case "disconnected":
+      case "idle":
       default:
-        return 'border-indigo-300/30 shadow-indigo-500/10';
+        return "border-indigo-300/30 shadow-indigo-500/10";
     }
   };
 
@@ -98,13 +101,13 @@ export function VoiceOrb({
   const getScaleAnimation = () => {
     if (shouldReduceMotion) return { scale: 1 };
     switch (normalizedState) {
-      case 'connecting':
+      case "connecting":
         return { scale: [1, 1.04, 1] };
-      case 'listening':
+      case "listening":
         return isMuted ? { scale: 1 } : { scale: [1, 1.06, 1] };
-      case 'thinking':
+      case "thinking":
         return { scale: [1, 1.02, 1] };
-      case 'speaking':
+      case "speaking":
         return { scale: [1, 1.08, 1] };
       default:
         return { scale: [1, 1.02, 1] };
@@ -113,13 +116,13 @@ export function VoiceOrb({
 
   const getTransitionDuration = () => {
     switch (normalizedState) {
-      case 'connecting':
+      case "connecting":
         return 2.0;
-      case 'listening':
+      case "listening":
         return 1.8;
-      case 'thinking':
+      case "thinking":
         return 2.5;
-      case 'speaking':
+      case "speaking":
         return 1.2;
       default:
         return 3.0;
@@ -127,52 +130,59 @@ export function VoiceOrb({
   };
 
   return (
-    <div className={cn('relative flex items-center justify-center selection:bg-none', className)}>
+    <div
+      className={cn(
+        "relative flex items-center justify-center selection:bg-none",
+        className,
+      )}
+    >
       {/* Outer Ambient Glow Ring */}
       <motion.div
         animate={getScaleAnimation()}
         transition={{
           duration: getTransitionDuration(),
           repeat: Infinity,
-          ease: 'easeInOut',
+          ease: "easeInOut",
         }}
         className={cn(
-          'absolute rounded-full bg-gradient-to-tr opacity-60 blur-2xl transition-all duration-700',
-          'size-60 sm:size-72 md:size-80',
-          getGlowColor()
+          "absolute rounded-full bg-gradient-to-tr opacity-60 blur-2xl transition-all duration-700",
+          "size-60 sm:size-72 md:size-80",
+          getGlowColor(),
         )}
       />
 
       {/* Outer Pulsing Wave Ring for Speaking/Listening */}
-      {(normalizedState === 'listening' || normalizedState === 'speaking') &&
+      {(normalizedState === "listening" || normalizedState === "speaking") &&
         !shouldReduceMotion && (
           <motion.div
             initial={{ scale: 0.9, opacity: 0.7 }}
             animate={{ scale: [1, 1.25, 1.35], opacity: [0.6, 0.2, 0] }}
             transition={{
-              duration: normalizedState === 'speaking' ? 1.5 : 2.2,
+              duration: normalizedState === "speaking" ? 1.5 : 2.2,
               repeat: Infinity,
-              ease: 'easeOut',
+              ease: "easeOut",
             }}
             className={cn(
-              'absolute rounded-full border border-current opacity-30',
-              'size-48 sm:size-56 md:size-64',
-              normalizedState === 'speaking' ? 'text-emerald-400' : 'text-purple-400'
+              "absolute rounded-full border border-current opacity-30",
+              "size-48 sm:size-56 md:size-64",
+              normalizedState === "speaking"
+                ? "text-emerald-400"
+                : "text-purple-400",
             )}
           />
         )}
 
       {/* Rotating Ring for Thinking State */}
-      {normalizedState === 'thinking' && !shouldReduceMotion && (
+      {normalizedState === "thinking" && !shouldReduceMotion && (
         <motion.div
           animate={{ rotate: 360 }}
-          transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+          transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
           className="absolute size-52 rounded-full border-2 border-dashed border-indigo-400/50 sm:size-60 md:size-68"
         />
       )}
 
       {/* Shader Aura Visualizer (when agent is speaking and audioTrack exists) */}
-      {normalizedState === 'speaking' && audioTrack && (
+      {normalizedState === "speaking" && audioTrack && (
         <div className="absolute inset-0 z-10 flex items-center justify-center opacity-90">
           <AgentAudioVisualizerAura
             state={state}
@@ -187,19 +197,19 @@ export function VoiceOrb({
       <motion.button
         type="button"
         onClick={onClick}
-        disabled={normalizedState === 'connecting'}
+        disabled={normalizedState === "connecting"}
         aria-label={`BolBuddy Voice Orb: ${normalizedState}`}
         animate={getScaleAnimation()}
         transition={{
           duration: getTransitionDuration(),
           repeat: Infinity,
-          ease: 'easeInOut',
+          ease: "easeInOut",
         }}
         className={cn(
-          'relative z-20 flex cursor-pointer items-center justify-center rounded-full bg-gradient-to-tr shadow-2xl transition-all duration-500 focus-visible:ring-4 focus-visible:ring-indigo-400 focus-visible:outline-hidden disabled:cursor-not-allowed',
-          'size-44 sm:size-52 md:size-60',
+          "relative z-20 flex cursor-pointer items-center justify-center rounded-full bg-gradient-to-tr shadow-2xl transition-all duration-500 focus-visible:ring-4 focus-visible:ring-indigo-400 focus-visible:outline-hidden disabled:cursor-not-allowed",
+          "size-44 sm:size-52 md:size-60",
           getOrbGradient(),
-          getBorderRing()
+          getBorderRing(),
         )}
       >
         {/* Inner Glass Highlights */}
@@ -208,26 +218,27 @@ export function VoiceOrb({
 
         {/* Center Icon & Indicator */}
         <div className="relative z-30 flex flex-col items-center justify-center gap-2 text-white">
-          {normalizedState === 'connecting' && (
+          {normalizedState === "connecting" && (
             <Loader2 className="size-10 animate-spin text-amber-200" />
           )}
 
-          {normalizedState === 'listening' &&
+          {normalizedState === "listening" &&
             (isMuted ? (
               <MicOff className="size-10 text-rose-300" />
             ) : (
               <Mic className="size-10 animate-pulse text-white" />
             ))}
 
-          {normalizedState === 'thinking' && (
+          {normalizedState === "thinking" && (
             <Loader2 className="size-10 animate-spin text-indigo-200" />
           )}
 
-          {normalizedState === 'speaking' && (
+          {normalizedState === "speaking" && (
             <Volume2 className="size-10 animate-pulse text-emerald-200" />
           )}
 
-          {(normalizedState === 'idle' || normalizedState === 'disconnected') && (
+          {(normalizedState === "idle" ||
+            normalizedState === "disconnected") && (
             <Mic className="size-10 text-white/90" />
           )}
         </div>

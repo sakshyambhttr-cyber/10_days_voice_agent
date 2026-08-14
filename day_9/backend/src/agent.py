@@ -111,19 +111,64 @@ def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
         logger.warning(f"Chat context pruning exception: {e}")
 
 
+def _clean_and_copy_chat_ctx(
+    chat_ctx: llm.ChatContext | None, max_turns: int = 4
+) -> llm.ChatContext | None:
+    """Create a clean, lightweight copy of chat context stripped of heavy tool outputs and old bloat."""
+    if not chat_ctx:
+        return None
+    copied = chat_ctx.copy(exclude_instructions=True)
+    if hasattr(copied, "messages") and copied.messages:
+        cleaned_msgs = []
+        for m in copied.messages:
+            role = getattr(m, "role", None)
+            if role in ("tool", "system", "developer"):
+                continue
+            content = str(getattr(m, "content", "") or "")
+            if (
+                '{"name":' in content
+                or '"parameters":' in content
+                or "</function>" in content
+                or "create_escalation" in content
+                or "fetch_next_exercise" in content
+                or "score_spoken_answer" in content
+                or ">{" in content
+            ):
+                continue
+            cleaned_msgs.append(m)
+        copied.messages = (
+            cleaned_msgs[-max_turns:]
+            if len(cleaned_msgs) > max_turns
+            else cleaned_msgs
+        )
+    return copied
+
+
+_TTS_CACHE: dict[str, murf.TTS] = {}
+
+
 def create_murf_tts(
     voice: str = "Anisha",
     style: str = "Conversation",
     min_sentence_len: int = 1,
     text_pacing: bool = True,
-) -> murf.TTS:
-    """Factory helper to instantiate Murf Falcon TTS with consistent streaming parameters across specialists."""
-    return murf.TTS(
-        voice=voice,
-        style=style,
-        tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=min_sentence_len),
-        text_pacing=text_pacing,
-    )
+) -> murf.TTS | None:
+    """Cached factory helper to instantiate or reuse Murf Falcon TTS with consistent streaming parameters."""
+    cache_key = f"{voice}:{style}:{min_sentence_len}:{text_pacing}"
+    if cache_key not in _TTS_CACHE:
+        try:
+            _TTS_CACHE[cache_key] = murf.TTS(
+                voice=voice,
+                style=style,
+                tokenizer=tokenize.basic.SentenceTokenizer(
+                    min_sentence_len=min_sentence_len
+                ),
+                text_pacing=text_pacing,
+            )
+        except Exception as e:
+            logger.warning(f"Could not create Murf TTS for voice '{voice}': {e}")
+            return None
+    return _TTS_CACHE.get(cache_key)
 
 
 class Assistant(Agent):
@@ -134,14 +179,52 @@ class Assistant(Agent):
         chat_ctx: llm.ChatContext | None = None,
         tts: tts.TTS | str | None = None,
         voice: str = "Anisha",
+        is_handoff_return: bool = False,
         **kwargs,
     ) -> None:
+        agent_tts = tts
+        if agent_tts is None and voice:
+            try:
+                agent_tts = create_murf_tts(voice=voice)
+            except Exception as e:
+                logger.warning(f"Could not create Murf TTS for voice '{voice}': {e}")
+                agent_tts = None
+
         super().__init__(
             instructions=SYSTEM_PROMPT,
             chat_ctx=chat_ctx,
-            tts=tts if tts is not None else NOT_GIVEN,
+            tts=agent_tts if agent_tts is not None else NOT_GIVEN,
             **kwargs,
         )
+        self._is_handoff_return = is_handoff_return
+
+    async def on_enter(self) -> None:
+        """When returning to BolBuddy from a specialist agent, greet immediately with zero LLM latency."""
+        logger.info("BolBuddy entered active session")
+        try:
+            # 1. Update WebRTC room attributes
+            if hasattr(self, "session") and self.session:
+                try:
+                    room = getattr(self.session, "room_io", None)
+                    if room and hasattr(room, "room") and room.room:
+                        local_p = room.room.local_participant
+                        if local_p:
+                            await local_p.set_attributes({
+                                "active_agent": "bolbuddy",
+                                "agent_name": "BolBuddy",
+                                "agent_voice": "Anisha",
+                            })
+                except Exception as attr_err:
+                    logger.info(f"Could not set participant attributes: {attr_err}")
+
+                # 2. Greet returning user
+                if self._is_handoff_return:
+                    self.session.say(
+                        "Welcome back! What would you like to practice next?",
+                        allow_interruptions=True,
+                    )
+        except Exception as e:
+            logger.error(f"Error in BolBuddy on_enter: {e}", exc_info=True)
 
     @function_tool
     async def lookup_user_memory(
@@ -252,52 +335,34 @@ class Assistant(Agent):
                 mark_call_outcome(
                     call_id=call_id,
                     outcome="success",
-                    completed_activities_inc=1,
+                    reason=f"Selected exercise: {topic} ({level})",
                 )
         except Exception as err:
-            logger.warning(
-                f"Failed to auto-mark call outcome in fetch_next_exercise: {err}"
-            )
+            logger.warning(f"Failed to mark call outcome: {err}")
 
-        logger.info("TOOL COMPLETE: fetch_next_exercise")
+        logger.info(f"TOOL COMPLETE: fetch_next_exercise -> {res_str}")
         return res_str
 
     @function_tool
     async def score_spoken_answer(
         self,
         context: RunContext,
-        question: str = "",
-        answer: str = "",
-        transcript: str = "",
-        practice_topic: str = "",
+        exercise_question: str = "",
+        user_spoken_answer: str = "",
+        target_criteria: str = "grammar, clarity, confidence",
     ) -> str:
-        """Evaluate a completed spoken answer. Use only when learner explicitly asks for feedback, evaluation, or a score."""
+        """Evaluate a spoken practice answer. Return score, strengths, improvements, and encouragement."""
         logger.info("TOOL CALL: score_spoken_answer")
-        res = await fn_score_spoken_answer(
-            context,
-            question=question,
-            answer=answer,
-            transcript=transcript,
-            practice_topic=practice_topic,
+        res_dict = fn_score_spoken_answer(
+            exercise_question=exercise_question,
+            user_spoken_answer=user_spoken_answer,
+            target_criteria=target_criteria,
         )
-        # Mark current call as successful when spoken answer is evaluated
-        try:
-            call_id = (
-                context.proc.userdata.get("call_id")
-                if hasattr(context, "proc") and hasattr(context.proc, "userdata")
-                else None
-            )
-            if call_id:
-                mark_call_outcome(
-                    call_id=call_id, outcome="success", completed_activities_inc=1
-                )
-        except Exception as e:
-            logger.warning(
-                f"Failed to auto-mark call outcome in score_spoken_answer: {e}"
-            )
+        import json
 
-        logger.info("TOOL COMPLETE: score_spoken_answer")
-        return res
+        res_str = json.dumps(res_dict)
+        logger.info(f"TOOL COMPLETE: score_spoken_answer -> {res_str}")
+        return res_str
 
     @function_tool
     async def mark_call_outcome(
@@ -362,20 +427,20 @@ class Assistant(Agent):
         self,
         context: RunContext,
         who_needs_help: str = "",
-        reason_type: str = "learner_distress",
+        reason_type: str = "general_support",
         issue_summary: str = "",
-        checked_by_agent: str = "",
+        checked_by_agent: bool = True,
         urgency: str = "medium",
         preferred_language: str = "English",
-        preferred_contact: str = "phone",
+        preferred_contact: str = "Email",
         user_id: str = "",
     ) -> str:
-        """Create a human help request when learner is upset/anxious or asks for a human teacher. DO NOT call this tool until AFTER the user gives explicit consent (e.g. says yes). FIRST ask the user for permission to create a request."""
+        """Create human support escalation ticket. Call only after learner explicitly confirms consent."""
         logger.info(
-            f"TOOL CALL: create_escalation (reason_type='{reason_type}', urgency='{urgency}')"
+            f"TOOL CALL: create_escalation (reason='{reason_type}', urgency='{urgency}')"
         )
-        res = await fn_create_escalation(
-            context=context,
+        res = fn_create_escalation(
+            context,
             who_needs_help=who_needs_help,
             reason_type=reason_type,
             issue_summary=issue_summary,
@@ -394,27 +459,35 @@ class Assistant(Agent):
         context: RunContext,
         target_role: str = "",
         user_id: str = "",
-    ) -> tuple[Agent, str]:
+    ) -> Agent:
         """Transfer the learner to InterviewBuddy for job interview preparation, mock interviews, and practice questions. Call this immediately when the learner requests interview practice (e.g. 'I want to practice for an interview', 'I have an interview next week') or confirms a switch to InterviewBuddy."""
         logger.info(
             f"TOOL CALL: transfer_to_interview_buddy (target_role='{target_role}')"
         )
-        copied_ctx = (
-            self.chat_ctx.copy(exclude_instructions=True)
-            if hasattr(self, "chat_ctx") and self.chat_ctx
-            else None
+        # 1. Anisha speaks first in her voice to acknowledge connecting
+        try:
+            if hasattr(self, "session") and self.session:
+                speech = self.session.say(
+                    "Connecting you with InterviewBuddy now!",
+                    allow_interruptions=False,
+                )
+                await speech
+        except Exception as e:
+            logger.debug(f"Anisha transition speech notice: {e}")
+
+        copied_ctx = _clean_and_copy_chat_ctx(
+            self.chat_ctx if hasattr(self, "chat_ctx") else None
         )
         interview_agent = InterviewBuddy(
             chat_ctx=copied_ctx,
+            tts=create_murf_tts(voice="Samar"),
             voice="Samar",
+            target_role=target_role,
         )
         logger.info(
             "TOOL COMPLETE: transfer_to_interview_buddy -> Handoff to InterviewBuddy (voice='Samar')"
         )
-        return (
-            interview_agent,
-            "I'll connect you with InterviewBuddy for focused interview practice.",
-        )
+        return interview_agent
 
 
 class InterviewBuddy(Agent):
@@ -425,6 +498,7 @@ class InterviewBuddy(Agent):
         chat_ctx: llm.ChatContext | None = None,
         tts: tts.TTS | str | None = None,
         voice: str = "Samar",
+        target_role: str = "",
         **kwargs,
     ) -> None:
         agent_tts = tts
@@ -441,6 +515,89 @@ class InterviewBuddy(Agent):
             tts=agent_tts if agent_tts is not None else NOT_GIVEN,
             **kwargs,
         )
+        self.target_role = target_role
+
+    async def on_enter(self) -> None:
+        """Immediately greet the learner upon handoff with zero LLM roundtrip latency."""
+        logger.info("InterviewBuddy entered active session")
+        try:
+            # 1. Update WebRTC room attributes
+            if hasattr(self, "session") and self.session:
+                try:
+                    room = getattr(self.session, "room_io", None)
+                    if room and hasattr(room, "room") and room.room:
+                        local_p = room.room.local_participant
+                        if local_p:
+                            await local_p.set_attributes({
+                                "active_agent": "interview_buddy",
+                                "agent_name": "InterviewBuddy",
+                                "agent_voice": "Samar",
+                            })
+                except Exception as attr_err:
+                    logger.info(f"Could not set participant attributes: {attr_err}")
+
+                # 2. Samar greets the learner and asks the first interview question
+                if self.target_role:
+                    greeting = f"Hi, I'm InterviewBuddy! Let's practice for {self.target_role}. Tell me about yourself."
+                else:
+                    greeting = "Hi, I'm InterviewBuddy! What role are you preparing for?"
+
+                logger.info(f"InterviewBuddy speaking initial greeting: '{greeting}'")
+                self.session.say(greeting, allow_interruptions=True)
+        except Exception as e:
+            logger.error(f"Error in InterviewBuddy on_enter: {e}", exc_info=True)
+
+    @function_tool
+    async def score_spoken_answer(
+        self,
+        context: RunContext,
+        exercise_question: str = "",
+        user_spoken_answer: str = "",
+        target_criteria: str = "grammar, clarity, confidence",
+    ) -> str:
+        """Evaluate a spoken interview answer. Return score, strengths, improvements, and encouragement."""
+        logger.info("TOOL CALL: score_spoken_answer (InterviewBuddy)")
+        res_dict = fn_score_spoken_answer(
+            exercise_question=exercise_question,
+            user_spoken_answer=user_spoken_answer,
+            target_criteria=target_criteria,
+        )
+        import json
+
+        res_str = json.dumps(res_dict)
+        logger.info(f"TOOL COMPLETE: score_spoken_answer -> {res_str}")
+        return res_str
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        who_needs_help: str = "",
+        reason_type: str = "general_support",
+        issue_summary: str = "",
+        checked_by_agent: bool = True,
+        urgency: str = "medium",
+        preferred_language: str = "English",
+        preferred_contact: str = "Email",
+        user_id: str = "",
+    ) -> str:
+        """Create human support escalation ticket. Call only after learner explicitly confirms consent."""
+        logger.info(
+            f"TOOL CALL: create_escalation (reason='{reason_type}', urgency='{urgency}')"
+        )
+        res = fn_create_escalation(
+            context,
+            who_needs_help=who_needs_help,
+            reason_type=reason_type,
+            issue_summary=issue_summary,
+            checked_by_agent=checked_by_agent,
+            urgency=urgency,
+            preferred_language=preferred_language,
+            preferred_contact=preferred_contact,
+            user_id=user_id,
+        )
+        logger.info(f"TOOL COMPLETE: create_escalation -> {res}")
+        return res
 
     @function_tool
     async def transfer_to_bolbuddy(
@@ -448,51 +605,33 @@ class InterviewBuddy(Agent):
         context: RunContext,
         reason: str = "",
         user_id: str = "",
-    ) -> tuple[Agent, str]:
-        """Transfer the learner back to BolBuddy for general English practice, casual conversation, and everyday topics."""
+    ) -> Agent:
+        """Transfer the learner back to BolBuddy whenever the conversation moves outside of job interview preparation, or the learner asks general English/grammar questions, makes small talk/casual conversation, or finishes interview practice."""
         logger.info(f"TOOL CALL: transfer_to_bolbuddy (reason='{reason}')")
-        copied_ctx = (
-            self.chat_ctx.copy(exclude_instructions=True)
-            if hasattr(self, "chat_ctx") and self.chat_ctx
-            else None
+        # 1. Samar speaks first in his voice to acknowledge handback
+        try:
+            if hasattr(self, "session") and self.session:
+                speech = self.session.say(
+                    "Of course! Handing you back to BolBuddy.",
+                    allow_interruptions=False,
+                )
+                await speech
+        except Exception as e:
+            logger.debug(f"Samar transition speech notice: {e}")
+
+        copied_ctx = _clean_and_copy_chat_ctx(
+            self.chat_ctx if hasattr(self, "chat_ctx") else None
         )
         bolbuddy_agent = Assistant(
             chat_ctx=copied_ctx,
             tts=create_murf_tts(voice="Anisha"),
             voice="Anisha",
+            is_handoff_return=True,
         )
         logger.info(
-            "TOOL COMPLETE: transfer_to_bolbuddy -> Handoff to BolBuddy (voice='Anisha')"
+            "TOOL COMPLETE: transfer_to_bolbuddy -> switching back to BolBuddy (voice='Anisha')"
         )
-        return (
-            bolbuddy_agent,
-            "I'll connect you back with BolBuddy for general English practice.",
-        )
-
-
-def _clean_tts_text(text: str) -> str:
-    """Sanitize spoken text output to ensure no raw tool tags, XML, JSON, or formatting noise reach TTS audio synthesis."""
-    if not text:
-        return ""
-    import re
-
-    # Remove XML / HTML tags like <a function=...>, <function=...>, </function>, <tool_call>, etc.
-    text = re.sub(r"<[^>]+>", "", text)
-    # Remove raw JSON structures {"...": ...}
-    text = re.sub(r"\{[\s\S]*?\}", "", text)
-    # Remove raw dict string representations like {'name': 'Ramesh', ...}
-    text = re.sub(r"'[\w_]+':\s*'[^']+'", "", text)
-    # Remove leaked tool names or metadata parameter labels
-    text = re.sub(
-        r"\b(save_user_memory|lookup_user_memory|forget_my_data|what_do_you_remember|fetch_next_exercise|score_spoken_answer|search_learning_resources|skill_level|topic_practiced|recurring_challenge|user_id|master_user)\b",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    # Remove random slashes, backslashes, hashes, underscores, or repeated punctuation noise (/ , \ _ # *)
-    text = re.sub(r"[\/\\\_\|\#\*\=\+\@\%\^\&\~\`]+", " ", text)
-    text = re.sub(r"\.{2,}", ".", text)
-    return re.sub(r"\s+", " ", text).strip()
+        return bolbuddy_agent
 
 
 def _prune_history(session: AgentSession, max_turns: int = 6) -> None:
@@ -602,16 +741,19 @@ async def my_agent(ctx: JobContext):
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     google_key = os.getenv("GOOGLE_API_KEY", "").strip()
 
+    max_tokens = int(os.getenv("LLM_MAX_TOKENS", "1000"))
+
     if provider == "openrouter" or (not provider and openrouter_key):
         openrouter_model = os.getenv(
             "OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"
         ).strip()
-        logger.info(f"LLM Provider: OpenRouter ({openrouter_model})")
+        logger.info(f"LLM Provider: OpenRouter ({openrouter_model}) [max_tokens={max_tokens}]")
         llm = openai.LLM(
             model=openrouter_model,
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_key,
             temperature=0.7,
+            max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         )
@@ -620,24 +762,26 @@ async def my_agent(ctx: JobContext):
         nvidia_base_url = os.getenv(
             "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"
         ).strip()
-        logger.info(f"LLM Provider: NVIDIA API ({nvidia_model})")
+        logger.info(f"LLM Provider: NVIDIA API ({nvidia_model}) [max_tokens={max_tokens}]")
         llm = openai.LLM(
             model=nvidia_model,
             base_url=nvidia_base_url,
             api_key=nvidia_key,
             temperature=0.7,
             top_p=1.0,
+            max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         )
     elif provider == "groq" or (not provider and groq_key):
         groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
-        logger.info(f"LLM Provider: Groq API ({groq_model})")
+        logger.info(f"LLM Provider: Groq API ({groq_model}) [max_tokens={max_tokens}]")
         llm = openai.LLM(
             model=groq_model,
             base_url="https://api.groq.com/openai/v1",
             api_key=groq_key,
             temperature=0.7,
+            max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         )
@@ -652,14 +796,30 @@ async def my_agent(ctx: JobContext):
     # Built-in text transforms to strip markdown and emojis from spoken audio
     tts_transforms = ["filter_markdown", "filter_emoji"]
 
+    # Text-to-speech (TTS) via Murf Falcon (min_sentence_len=1 for immediate audio streaming)
+    tts_anisha = create_murf_tts(voice="Anisha")
+    tts_samar = create_murf_tts(voice="Samar")
+
+    async def _prewarm_tts_connections():
+        try:
+            if tts_anisha and hasattr(tts_anisha, "prewarm"):
+                tts_anisha.prewarm()
+            if tts_samar and hasattr(tts_samar, "prewarm"):
+                tts_samar.prewarm()
+        except Exception as prewarm_err:
+            logger.info(f"TTS connection prewarm info: {prewarm_err}")
+
+    _prewarm_task = asyncio.create_task(_prewarm_tts_connections())
+    # Keep reference on proc userdata to prevent early GC
+    ctx.proc.userdata["prewarm_task"] = _prewarm_task
+
     # Set up a voice AI pipeline matching official Murf multilingual recommendation
     session_kwargs = {
         # Speech-to-text (STT) via Deepgram Nova-3 with multilingual support (en + hi + hinglish)
         "stt": deepgram.STT(model="nova-3", language="multi", smart_format=True),
         # A Large Language Model (LLM) processing user input and executing function tools
         "llm": llm,
-        # Text-to-speech (TTS) via Murf Falcon (min_sentence_len=1 for immediate audio streaming)
-        "tts": create_murf_tts(voice="Anisha"),
+        "tts": tts_anisha,
         "vad": ctx.proc.userdata["vad"],
         # Responsive endpointing delays (0.15s silence threshold, 0.5s max phrase window)
         "min_endpointing_delay": 0.15,
@@ -729,6 +889,17 @@ async def my_agent(ctx: JobContext):
         )
     )
     ctx.proc.userdata["session_task"] = session_started
+
+    # Set initial participant attributes on the agent
+    if ctx.room and ctx.room.local_participant:
+        try:
+            await ctx.room.local_participant.set_attributes({
+                "active_agent": "bolbuddy",
+                "agent_name": "BolBuddy",
+                "agent_voice": "Anisha",
+            })
+        except Exception as attr_err:
+            logger.info(f"Initial participant attributes: {attr_err}")
 
     # Track user interaction and deliver initial personalized voice greeting
     try:

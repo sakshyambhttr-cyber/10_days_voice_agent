@@ -1,9 +1,15 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { Calendar, CheckCircle2, Phone, PhoneCall, Sparkles } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { getPersistentUserId } from '@/lib/utils';
+import React, { useEffect, useState } from "react";
+import {
+  Calendar,
+  CheckCircle2,
+  Phone,
+  PhoneCall,
+  Sparkles,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { getPersistentUserId } from "@/lib/utils";
 
 export interface DailyScheduleData {
   user_id: string;
@@ -16,13 +22,15 @@ export interface DailyScheduleData {
 }
 
 export const PracticeCallSection = () => {
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [scheduledTime, setScheduledTime] = useState('8:00 PM');
-  const [practiceTopic, setPracticeTopic] = useState('Job Interview Preparation');
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("8:00 PM");
+  const [practiceTopic, setPracticeTopic] = useState(
+    "Job Interview Preparation",
+  );
   const [consentGiven, setConsentGiven] = useState(false);
   const [schedule, setSchedule] = useState<DailyScheduleData | null>(null);
   const [statusMessage, setStatusMessage] = useState<{
-    type: 'success' | 'error' | 'info';
+    type: "success" | "error" | "info";
     text: string;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,30 +41,41 @@ export const PracticeCallSection = () => {
       const userId = getPersistentUserId();
       if (!userId) return;
       try {
-        const res = await fetch(`/api/outbound/practice?userId=${encodeURIComponent(userId)}`);
+        const res = await fetch(
+          `/api/outbound/practice?userId=${encodeURIComponent(userId)}`,
+        );
         const data = await res.json();
         if (data.success && data.schedule && data.schedule.enabled) {
           setSchedule(data.schedule);
-          if (data.schedule.phone_number) setPhoneNumber(data.schedule.phone_number);
-          if (data.schedule.preferred_time) setScheduledTime(data.schedule.preferred_time);
-          if (data.schedule.practice_topic) setPracticeTopic(data.schedule.practice_topic);
+          if (data.schedule.phone_number)
+            setPhoneNumber(data.schedule.phone_number);
+          if (data.schedule.preferred_time)
+            setScheduledTime(data.schedule.preferred_time);
+          if (data.schedule.practice_topic)
+            setPracticeTopic(data.schedule.practice_topic);
           setConsentGiven(true);
         }
       } catch (err) {
-        console.warn('Failed to fetch practice call schedule:', err);
+        console.warn("Failed to fetch practice call schedule:", err);
       }
     }
     loadSchedule();
   }, []);
 
   const handleSaveSchedule = async () => {
-    const userId = getPersistentUserId() || 'default_user';
+    const userId = getPersistentUserId() || "default_user";
     if (!phoneNumber.trim()) {
-      setStatusMessage({ type: 'error', text: 'Please enter a valid phone number.' });
+      setStatusMessage({
+        type: "error",
+        text: "Please enter a valid phone number.",
+      });
       return;
     }
     if (!consentGiven) {
-      setStatusMessage({ type: 'error', text: 'Please agree to receive daily practice calls.' });
+      setStatusMessage({
+        type: "error",
+        text: "Please agree to receive daily practice calls.",
+      });
       return;
     }
 
@@ -64,16 +83,17 @@ export const PracticeCallSection = () => {
     setStatusMessage(null);
 
     try {
-      const res = await fetch('/api/outbound/practice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/outbound/practice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
-          action: 'save_schedule',
+          action: "save_schedule",
           phoneNumber: phoneNumber.trim(),
-          scheduledTime: scheduledTime.trim() || '8:00 PM',
-          practiceTopic: practiceTopic.trim() || 'Spoken English Practice',
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
+          scheduledTime: scheduledTime.trim() || "8:00 PM",
+          practiceTopic: practiceTopic.trim() || "Spoken English Practice",
+          timezone:
+            Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata",
         }),
       });
 
@@ -83,28 +103,31 @@ export const PracticeCallSection = () => {
       if (data.success && data.schedule) {
         setSchedule(data.schedule);
         setStatusMessage({
-          type: 'success',
+          type: "success",
           text: `Daily practice scheduled! BolBuddy will call you every day at ${scheduledTime.trim()}.`,
         });
       } else {
         setStatusMessage({
-          type: 'error',
+          type: "error",
           text: "BolBuddy couldn't place your practice call this time.",
         });
       }
     } catch {
       setIsSubmitting(false);
       setStatusMessage({
-        type: 'error',
+        type: "error",
         text: "BolBuddy couldn't place your practice call this time.",
       });
     }
   };
 
   const handleCallNow = async () => {
-    const userId = getPersistentUserId() || 'default_user';
+    const userId = getPersistentUserId() || "default_user";
     if (!phoneNumber.trim()) {
-      setStatusMessage({ type: 'error', text: 'Please enter your phone number or Linphone ID.' });
+      setStatusMessage({
+        type: "error",
+        text: "Please enter your phone number or Linphone ID.",
+      });
       return;
     }
 
@@ -112,14 +135,14 @@ export const PracticeCallSection = () => {
     setStatusMessage(null);
 
     try {
-      const res = await fetch('/api/outbound/practice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/outbound/practice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
-          action: 'immediate',
+          action: "immediate",
           phoneNumber: phoneNumber.trim(),
-          practiceTopic: practiceTopic.trim() || 'Spoken English Practice',
+          practiceTopic: practiceTopic.trim() || "Spoken English Practice",
         }),
       });
 
@@ -128,35 +151,35 @@ export const PracticeCallSection = () => {
 
       if (data.success) {
         setStatusMessage({
-          type: 'success',
+          type: "success",
           text: `Calling ${phoneNumber.trim()} now... Answer your phone/Linphone app!`,
         });
       } else {
         setStatusMessage({
-          type: 'error',
+          type: "error",
           text: data.error || "BolBuddy couldn't place the call right now.",
         });
       }
     } catch {
       setIsSubmitting(false);
       setStatusMessage({
-        type: 'error',
+        type: "error",
         text: "BolBuddy couldn't place your call right now.",
       });
     }
   };
 
   const handleCancelSchedule = async () => {
-    const userId = getPersistentUserId() || 'default_user';
+    const userId = getPersistentUserId() || "default_user";
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/outbound/practice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/outbound/practice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
-          action: 'cancel_schedule',
+          action: "cancel_schedule",
         }),
       });
 
@@ -166,14 +189,14 @@ export const PracticeCallSection = () => {
       if (data.success) {
         setSchedule(null);
         setStatusMessage({
-          type: 'info',
-          text: 'Daily practice calls cancelled. You can schedule again anytime.',
+          type: "info",
+          text: "Daily practice calls cancelled. You can schedule again anytime.",
         });
       }
     } catch {
       setIsSubmitting(false);
       setStatusMessage({
-        type: 'error',
+        type: "error",
         text: "BolBuddy couldn't update your schedule right now.",
       });
     }
@@ -184,11 +207,11 @@ export const PracticeCallSection = () => {
     try {
       const date = new Date(isoStr);
       return date.toLocaleString(undefined, {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       });
     } catch {
       return `Tomorrow at ${scheduledTime}`;
@@ -203,9 +226,12 @@ export const PracticeCallSection = () => {
             <PhoneCall className="size-5" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Daily Practice Call</h2>
+            <h2 className="text-xl font-bold text-slate-900">
+              Daily Practice Call
+            </h2>
             <p className="text-xs font-medium text-slate-500">
-              Let BolBuddy call you every day for a short English practice session.
+              Let BolBuddy call you every day for a short English practice
+              session.
             </p>
           </div>
         </div>
@@ -242,7 +268,9 @@ export const PracticeCallSection = () => {
                   <span className="mb-1 block font-bold tracking-wider text-slate-500 uppercase">
                     Topic:
                   </span>
-                  <span className="font-semibold text-slate-800">{schedule.practice_topic}</span>
+                  <span className="font-semibold text-slate-800">
+                    {schedule.practice_topic}
+                  </span>
                 </div>
               </div>
             </div>
@@ -270,7 +298,7 @@ export const PracticeCallSection = () => {
                 disabled={isSubmitting}
                 className="rounded-xl border-rose-200 text-xs font-bold text-rose-700 hover:bg-rose-50"
               >
-                {isSubmitting ? 'Cancelling...' : 'Cancel Daily Calls'}
+                {isSubmitting ? "Cancelling..." : "Cancel Daily Calls"}
               </Button>
             </div>
           </div>
@@ -332,7 +360,10 @@ export const PracticeCallSection = () => {
                 onChange={(e) => setConsentGiven(e.target.checked)}
                 className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
-              <label htmlFor="consent-check" className="text-xs font-semibold text-slate-700">
+              <label
+                htmlFor="consent-check"
+                className="text-xs font-semibold text-slate-700"
+              >
                 I agree to receive daily practice calls.
               </label>
             </div>
@@ -344,7 +375,7 @@ export const PracticeCallSection = () => {
                 disabled={isSubmitting || !consentGiven}
                 className="rounded-xl bg-indigo-600 px-6 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isSubmitting ? 'Scheduling...' : 'Schedule Daily Practice'}
+                {isSubmitting ? "Scheduling..." : "Schedule Daily Practice"}
               </Button>
               <Button
                 variant="outline"
@@ -353,7 +384,7 @@ export const PracticeCallSection = () => {
                 className="rounded-xl border-emerald-300 bg-emerald-50 px-6 py-2.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
               >
                 <Phone className="mr-1.5 size-3.5 text-emerald-600" />
-                {isSubmitting ? 'Dialing...' : 'Call Me Now'}
+                {isSubmitting ? "Dialing..." : "Call Me Now"}
               </Button>
             </div>
           </div>
@@ -363,11 +394,11 @@ export const PracticeCallSection = () => {
         {statusMessage && (
           <div
             className={`mt-4 rounded-xl border p-3.5 text-xs font-medium ${
-              statusMessage.type === 'success'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : statusMessage.type === 'error'
-                  ? 'border-rose-200 bg-rose-50 text-rose-800'
-                  : 'border-blue-200 bg-blue-50 text-blue-800'
+              statusMessage.type === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : statusMessage.type === "error"
+                  ? "border-rose-200 bg-rose-50 text-rose-800"
+                  : "border-blue-200 bg-blue-50 text-blue-800"
             }`}
           >
             {statusMessage.text}

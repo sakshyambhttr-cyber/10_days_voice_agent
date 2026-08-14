@@ -65,7 +65,7 @@ export const AGENT_CONFIGS: Record<ActiveAgentType, ActiveAgentConfig> = {
   },
 };
 
-export function useActiveAgent(messages: ReceivedMessage[]) {
+export function useActiveAgent(messages: ReceivedMessage[], attributeAgent?: ActiveAgentType) {
   const [activeAgent, setActiveAgent] = useState<ActiveAgentType>('bolbuddy');
   const [targetAgent, setTargetAgent] = useState<ActiveAgentType>('interview_buddy');
   const [transitionPhase, setTransitionPhase] = useState<HandoffTransitionPhase>('idle');
@@ -76,50 +76,61 @@ export function useActiveAgent(messages: ReceivedMessage[]) {
     let detectedAgent: ActiveAgentType = 'bolbuddy';
     let isHandoffSignal = false;
 
-    // Scan messages chronologically to detect agent state transitions
-    for (const msg of messages) {
-      const rawText =
-        (msg as { message?: string }).message ||
-        (msg as { text?: string }).text ||
-        (msg as { transcript?: string }).transcript ||
-        '';
-      const text = String(rawText).toLowerCase();
-      if (!text) continue;
+    // Direct WebRTC participant attribute has highest authority
+    if (attributeAgent === 'interview_buddy' || attributeAgent === 'bolbuddy') {
+      detectedAgent = attributeAgent;
+      if (detectedAgent !== prevAgentRef.current) {
+        isHandoffSignal = true;
+      }
+    } else {
+      // Scan messages chronologically to detect agent state transitions
+      for (const msg of messages) {
+        const rawText =
+          (msg as { message?: string }).message ||
+          (msg as { text?: string }).text ||
+          (msg as { transcript?: string }).transcript ||
+          '';
+        const text = String(rawText).toLowerCase();
+        if (!text) continue;
 
-      const isAgent = !msg.from?.isLocal;
+        const isAgent = !msg.from?.isLocal;
 
-      // 1. Check for transfer to InterviewBuddy or InterviewBuddy active speech
-      if (
-        text.includes('interviewbuddy') ||
-        text.includes('transfer_to_interview_buddy') ||
-        text.includes('connecting you with interviewbuddy') ||
-        text.includes("i'll connect you with interviewbuddy") ||
-        text.includes("i'm interviewbuddy") ||
-        (isAgent &&
-          (text.includes('practice for your interview') ||
-            text.includes('software interview') ||
-            text.includes('mock interview') ||
-            text.includes('interview questions')))
-      ) {
-        detectedAgent = 'interview_buddy';
+        // 1. Check for transfer to InterviewBuddy or InterviewBuddy active speech
         if (
-          text.includes('connecting you with interviewbuddy') ||
+          text.includes('interviewbuddy') ||
           text.includes('transfer_to_interview_buddy') ||
-          text.includes("i'll connect you with interviewbuddy")
+          text.includes('connecting you now') ||
+          text.includes('connecting you with interviewbuddy') ||
+          text.includes('connecting you to interviewbuddy') ||
+          text.includes("i'll connect you with interviewbuddy") ||
+          text.includes("i'll connect you to interviewbuddy") ||
+          text.includes("i'm interviewbuddy") ||
+          (isAgent &&
+            (text.includes('practice for your interview') ||
+              text.includes('software interview') ||
+              text.includes('mock interview') ||
+              text.includes('interview questions') ||
+              text.includes('what role are you preparing for')))
         ) {
+          detectedAgent = 'interview_buddy';
           isHandoffSignal = true;
         }
-      }
 
-      // 2. Check for handback to BolBuddy
-      if (
-        text.includes('transfer_to_bolbuddy') ||
-        text.includes('connect you back with bolbuddy') ||
-        text.includes("i'll connect you back with bolbuddy") ||
-        text.includes("i'm bolbuddy")
-      ) {
-        detectedAgent = 'bolbuddy';
-        isHandoffSignal = true;
+        // 2. Check for handback to BolBuddy
+        if (
+          text.includes('transfer_to_bolbuddy') ||
+          text.includes('switching back now') ||
+          text.includes('switching back') ||
+          text.includes('connect you back with bolbuddy') ||
+          text.includes('connecting you back with bolbuddy') ||
+          text.includes('connecting you back to bolbuddy') ||
+          text.includes("i'll connect you back with bolbuddy") ||
+          text.includes("i'm bolbuddy") ||
+          text.includes('welcome back to bolbuddy')
+        ) {
+          detectedAgent = 'bolbuddy';
+          isHandoffSignal = true;
+        }
       }
     }
 
@@ -139,15 +150,15 @@ export function useActiveAgent(messages: ReceivedMessage[]) {
           setTransitionPhase('connected');
           const timer2 = setTimeout(() => {
             setTransitionPhase('idle');
-          }, 1200);
+          }, 500);
           return () => clearTimeout(timer2);
-        }, 800);
+        }, 250);
         return () => clearTimeout(timer1);
       } else {
         setTransitionPhase('idle');
       }
     }
-  }, [messages]);
+  }, [messages, attributeAgent]);
 
   const config = AGENT_CONFIGS[activeAgent];
   const targetConfig = AGENT_CONFIGS[targetAgent];

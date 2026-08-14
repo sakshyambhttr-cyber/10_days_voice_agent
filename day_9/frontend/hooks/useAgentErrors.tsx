@@ -1,8 +1,8 @@
-import { ReactNode, useEffect } from 'react';
-import { toast as sonnerToast } from 'sonner';
-import { useAgent, useSessionContext } from '@livekit/components-react';
-import { WarningIcon } from '@phosphor-icons/react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ReactNode, useEffect } from "react";
+import { toast as sonnerToast } from "sonner";
+import { useAgent, useSessionContext } from "@livekit/components-react";
+import { WarningIcon } from "@phosphor-icons/react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface ToastProps {
   title: ReactNode;
@@ -14,13 +14,16 @@ function toastAlert(toast: ToastProps) {
 
   return sonnerToast.custom(
     (id) => (
-      <Alert onClick={() => sonnerToast.dismiss(id)} className="bg-accent w-full md:w-[364px]">
+      <Alert
+        onClick={() => sonnerToast.dismiss(id)}
+        className="bg-accent w-full md:w-[364px]"
+      >
         <WarningIcon weight="bold" />
         <AlertTitle>{title}</AlertTitle>
         {description && <AlertDescription>{description}</AlertDescription>}
       </Alert>
     ),
-    { duration: 10_000 }
+    { duration: 10_000 },
   );
 }
 
@@ -29,11 +32,11 @@ export function useAgentErrors() {
   const { isConnected, end } = useSessionContext();
 
   useEffect(() => {
-    if (isConnected && agent.state === 'failed') {
+    if (isConnected && agent.state === "failed") {
       const reasons = agent.failureReasons;
 
       toastAlert({
-        title: 'Session ended',
+        title: "Session ended",
         description: (
           <>
             {reasons.length > 1 && (

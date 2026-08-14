@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { type AgentState } from '@livekit/components-react';
+import { useEffect, useRef, useState } from "react";
+import { type AgentState } from "@livekit/components-react";
 
 function findGcdLessThan(columns: number, max: number = columns): number {
   function gcd(a: number, b: number): number {
@@ -30,7 +30,10 @@ function generateConnectingSequenceBar(columns: number): number[][] {
 }
 
 function generateListeningSequenceBar(columns: number): number[][] {
-  const divisor = columns > 8 ? columns / findGcdLessThan(columns, 4) : findGcdLessThan(columns, 2);
+  const divisor =
+    columns > 8
+      ? columns / findGcdLessThan(columns, 4)
+      : findGcdLessThan(columns, 2);
 
   return Array.from({ length: divisor }, (_, idx) => [
     ...Array(Math.floor(columns / divisor))
@@ -42,19 +45,19 @@ function generateListeningSequenceBar(columns: number): number[][] {
 export const useAgentAudioVisualizerRadialAnimator = (
   state: AgentState | undefined,
   barCount: number,
-  interval: number
+  interval: number,
 ): number[] => {
   const [index, setIndex] = useState(0);
   const [sequence, setSequence] = useState<number[][]>([[]]);
 
   useEffect(() => {
-    if (state === 'thinking') {
+    if (state === "thinking") {
       setSequence(generateListeningSequenceBar(barCount));
-    } else if (state === 'connecting' || state === 'initializing') {
+    } else if (state === "connecting" || state === "initializing") {
       setSequence(generateConnectingSequenceBar(barCount));
-    } else if (state === 'listening') {
+    } else if (state === "listening") {
       setSequence(generateListeningSequenceBar(barCount));
-    } else if (state === undefined || state === 'speaking') {
+    } else if (state === undefined || state === "speaking") {
       setSequence([new Array(barCount).fill(0).map((_, idx) => idx)]);
     } else {
       setSequence([[]]);

@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import { AnimatePresence, motion } from 'motion/react';
-import { useSessionContext } from '@livekit/components-react';
-import type { AppConfig } from '@/app-config';
-import { BolBuddySessionView } from '@/components/app/bolbuddy-session-view';
-import { WelcomeView } from '@/components/app/welcome-view';
+import { AnimatePresence, motion } from "motion/react";
+import { useSessionContext } from "@livekit/components-react";
+import type { AppConfig } from "@/app-config";
+import { BolBuddySessionView } from "@/components/app/bolbuddy-session-view";
+import { WelcomeView } from "@/components/app/welcome-view";
 
 const MotionWelcomeView = motion.create(WelcomeView);
 const MotionSessionView = motion.create(BolBuddySessionView);
@@ -18,12 +18,12 @@ const VIEW_MOTION_PROPS = {
       opacity: 0,
     },
   },
-  initial: 'hidden',
-  animate: 'visible',
-  exit: 'hidden',
+  initial: "hidden",
+  animate: "visible",
+  exit: "hidden",
   transition: {
     duration: 0.4,
-    ease: 'easeInOut',
+    ease: "easeInOut",
   },
 };
 
@@ -46,7 +46,9 @@ export function ViewController({ appConfig }: ViewControllerProps) {
         />
       )}
       {/* Active BolBuddy Voice Session View */}
-      {isConnected && <MotionSessionView key="session-view" {...VIEW_MOTION_PROPS} />}
+      {isConnected && (
+        <MotionSessionView key="session-view" {...VIEW_MOTION_PROPS} />
+      )}
     </AnimatePresence>
   );
 }

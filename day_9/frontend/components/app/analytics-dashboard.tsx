@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -13,10 +13,10 @@ import {
   TrendingUp,
   X,
   XCircle,
-} from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
-import { Button } from '@/components/ui/button';
-import { getPersistentUserId } from '@/lib/utils';
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Button } from "@/components/ui/button";
+import { getPersistentUserId } from "@/lib/utils";
 
 export interface AnalyticsSummary {
   total_calls: number;
@@ -34,8 +34,8 @@ export interface RecentCallRecord {
   ended_at?: string;
   duration: number;
   duration_formatted: string;
-  channel: 'Browser' | 'SIP';
-  outcome: 'Successful' | 'Failed';
+  channel: "Browser" | "SIP";
+  outcome: "Successful" | "Failed";
   failure_reason?: string;
   completed_activities: number;
 }
@@ -45,7 +45,10 @@ interface AnalyticsDashboardProps {
   onClose: () => void;
 }
 
-export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps) {
+export function AnalyticsDashboard({
+  isOpen,
+  onClose,
+}: AnalyticsDashboardProps) {
   const [summary, setSummary] = useState<AnalyticsSummary>({
     total_calls: 0,
     successful_calls: 0,
@@ -62,16 +65,16 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
       setLoading(true);
       const userId = getPersistentUserId();
       if (userId) {
-        await fetch('/api/analytics/finalize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        await fetch("/api/analytics/finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId }),
         }).catch(() => {});
       }
 
       const [sumRes, recRes] = await Promise.all([
-        fetch('/api/analytics/calls'),
-        fetch('/api/analytics/recent?limit=10'),
+        fetch("/api/analytics/calls"),
+        fetch("/api/analytics/recent?limit=10"),
       ]);
 
       const sumData = await sumRes.json();
@@ -92,7 +95,7 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
         setRecentCalls(recData.recent_calls);
       }
     } catch (err) {
-      console.warn('Failed to fetch analytics dashboard data:', err);
+      console.warn("Failed to fetch analytics dashboard data:", err);
     } finally {
       setLoading(false);
     }
@@ -106,18 +109,18 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
 
   const formatReasonName = (reason: string) => {
     switch (reason.toLowerCase()) {
-      case 'user_hangup':
-        return 'User Ended Early';
-      case 'incomplete_exercise':
-        return 'Incomplete Exercise';
-      case 'user_declined':
-        return 'User Declined Call';
-      case 'technical_error':
-        return 'Technical Failure';
-      case 'no_response':
-        return 'No Response';
+      case "user_hangup":
+        return "User Ended Early";
+      case "incomplete_exercise":
+        return "Incomplete Exercise";
+      case "user_declined":
+        return "User Declined Call";
+      case "technical_error":
+        return "Technical Failure";
+      case "no_response":
+        return "No Response";
       default:
-        return reason.replace(/_/g, ' ');
+        return reason.replace(/_/g, " ");
     }
   };
 
@@ -136,10 +139,10 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
 
           {/* Drawer Content */}
           <motion.div
-            initial={{ x: '100%' }}
+            initial={{ x: "100%" }}
             animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 220 }}
             className="relative flex h-full w-full max-w-2xl flex-col border-l border-slate-800 bg-slate-900 text-slate-100 shadow-2xl"
           >
             {/* Header */}
@@ -153,7 +156,8 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                     BolBuddy Analytics
                   </h2>
                   <p className="text-xs font-medium text-slate-400">
-                    See how learners are using BolBuddy and completing practice sessions.
+                    See how learners are using BolBuddy and completing practice
+                    sessions.
                   </p>
                 </div>
               </div>
@@ -167,7 +171,7 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                   className="rounded-full border-slate-700 bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white"
                 >
                   <RefreshCw
-                    className={`mr-1.5 size-3.5 ${loading ? 'animate-spin text-indigo-400' : ''}`}
+                    className={`mr-1.5 size-3.5 ${loading ? "animate-spin text-indigo-400" : ""}`}
                   />
                   <span>Refresh Analytics</span>
                 </Button>
@@ -195,8 +199,12 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                     </span>
                     <PhoneCall className="size-4 text-indigo-400" />
                   </div>
-                  <span className="mt-3 text-3xl font-black text-white">{summary.total_calls}</span>
-                  <span className="mt-1 text-[11px] text-slate-400">Actual calls logged</span>
+                  <span className="mt-3 text-3xl font-black text-white">
+                    {summary.total_calls}
+                  </span>
+                  <span className="mt-1 text-[11px] text-slate-400">
+                    Actual calls logged
+                  </span>
                 </div>
 
                 {/* Successful Calls */}
@@ -226,7 +234,9 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                   <span className="mt-3 text-3xl font-black text-amber-400">
                     {summary.failed_calls}
                   </span>
-                  <span className="mt-1 text-[11px] text-amber-400/80">Left early or error</span>
+                  <span className="mt-1 text-[11px] text-amber-400/80">
+                    Left early or error
+                  </span>
                 </div>
               </div>
 
@@ -238,7 +248,9 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                     <TrendingUp className="size-5" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-slate-400">Success Rate</span>
+                    <span className="text-xs font-bold text-slate-400">
+                      Success Rate
+                    </span>
                     <div className="text-2xl font-extrabold text-white">
                       {summary.success_rate}%
                     </div>
@@ -251,7 +263,9 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                     <Award className="size-5" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-slate-400">Completed Activities</span>
+                    <span className="text-xs font-bold text-slate-400">
+                      Completed Activities
+                    </span>
                     <div className="text-2xl font-extrabold text-white">
                       {summary.completed_activities}
                     </div>
@@ -267,17 +281,21 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                     <span>Failure Reasons Breakdown</span>
                   </div>
                   <div className="space-y-2">
-                    {Object.entries(summary.failure_reasons).map(([reason, count]) => (
-                      <div
-                        key={reason}
-                        className="flex items-center justify-between rounded-xl bg-slate-900/60 px-3 py-2 text-xs"
-                      >
-                        <span className="text-slate-300">{formatReasonName(reason)}</span>
-                        <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 font-bold text-amber-300">
-                          {count}
-                        </span>
-                      </div>
-                    ))}
+                    {Object.entries(summary.failure_reasons).map(
+                      ([reason, count]) => (
+                        <div
+                          key={reason}
+                          className="flex items-center justify-between rounded-xl bg-slate-900/60 px-3 py-2 text-xs"
+                        >
+                          <span className="text-slate-300">
+                            {formatReasonName(reason)}
+                          </span>
+                          <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 font-bold text-amber-300">
+                            {count}
+                          </span>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </div>
               )}
@@ -285,7 +303,9 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
               {/* Recent Calls Table */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-200">Recent Call History</h3>
+                  <h3 className="text-sm font-bold text-slate-200">
+                    Recent Call History
+                  </h3>
                   <span className="text-xs font-medium text-slate-400">
                     Latest {recentCalls.length} calls
                   </span>
@@ -294,9 +314,12 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                 {recentCalls.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-800 p-8 text-center text-slate-500">
                     <Activity className="mx-auto mb-2 size-8 text-slate-600" />
-                    <p className="font-semibold text-slate-400">No calls recorded yet</p>
+                    <p className="font-semibold text-slate-400">
+                      No calls recorded yet
+                    </p>
                     <p className="text-xs">
-                      Start a voice session to generate real call analytics data.
+                      Start a voice session to generate real call analytics
+                      data.
                     </p>
                   </div>
                 ) : (
@@ -309,12 +332,12 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                         <div className="flex items-center gap-3">
                           <div
                             className={`flex size-9 items-center justify-center rounded-xl ${
-                              call.outcome === 'Successful'
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-amber-500/20 text-amber-400'
+                              call.outcome === "Successful"
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : "bg-amber-500/20 text-amber-400"
                             }`}
                           >
-                            {call.outcome === 'Successful' ? (
+                            {call.outcome === "Successful" ? (
                               <CheckCircle2 className="size-4" />
                             ) : (
                               <XCircle className="size-4" />
@@ -323,10 +346,13 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-white">
-                                {new Date(call.started_at).toLocaleTimeString([], {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {new Date(call.started_at).toLocaleTimeString(
+                                  [],
+                                  {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  },
+                                )}
                               </span>
                               <span className="rounded-md bg-slate-700/60 px-1.5 py-0.5 text-[10px] font-bold text-slate-300 uppercase">
                                 {call.channel}
@@ -347,9 +373,9 @@ export function AnalyticsDashboard({ isOpen, onClose }: AnalyticsDashboardProps)
                         <div className="text-right">
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${
-                              call.outcome === 'Successful'
-                                ? 'border border-emerald-500/30 bg-emerald-500/20 text-emerald-400'
-                                : 'border border-amber-500/30 bg-amber-500/20 text-amber-400'
+                              call.outcome === "Successful"
+                                ? "border border-emerald-500/30 bg-emerald-500/20 text-emerald-400"
+                                : "border border-amber-500/30 bg-amber-500/20 text-amber-400"
                             }`}
                           >
                             {call.outcome}

@@ -335,16 +335,19 @@ async def outbound_agent(ctx: JobContext):
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     google_key = os.getenv("GOOGLE_API_KEY", "").strip()
 
+    max_tokens = int(os.getenv("LLM_MAX_TOKENS", "1000"))
+
     if provider == "openrouter" or (not provider and openrouter_key):
         openrouter_model = os.getenv(
             "OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"
         ).strip()
-        logger.info(f"LLM Provider: OpenRouter ({openrouter_model})")
+        logger.info(f"LLM Provider: OpenRouter ({openrouter_model}) [max_tokens={max_tokens}]")
         llm = openai.LLM(
             model=openrouter_model,
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_key,
             temperature=0.7,
+            max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         )
@@ -353,24 +356,26 @@ async def outbound_agent(ctx: JobContext):
         nvidia_base_url = os.getenv(
             "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"
         ).strip()
-        logger.info(f"LLM Provider: NVIDIA API ({nvidia_model})")
+        logger.info(f"LLM Provider: NVIDIA API ({nvidia_model}) [max_tokens={max_tokens}]")
         llm = openai.LLM(
             model=nvidia_model,
             base_url=nvidia_base_url,
             api_key=nvidia_key,
             temperature=0.7,
             top_p=1.0,
+            max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         )
     elif provider == "groq" or (not provider and groq_key):
         groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
-        logger.info(f"LLM Provider: Groq API ({groq_model})")
+        logger.info(f"LLM Provider: Groq API ({groq_model}) [max_tokens={max_tokens}]")
         llm = openai.LLM(
             model=groq_model,
             base_url="https://api.groq.com/openai/v1",
             api_key=groq_key,
             temperature=0.7,
+            max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         )

@@ -1,16 +1,28 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { ArrowRight, BarChart3, Brain, LifeBuoy, Mic, ShieldCheck, Sparkles } from 'lucide-react';
-import { motion } from 'motion/react';
-import { Button } from '@/components/ui/button';
-import { getPersistentUserId } from '@/lib/utils';
-import { AnalyticsDashboard } from './analytics-dashboard';
-import { EscalationsDrawer } from './escalations-drawer';
-import { MemoryPanel, UserMemoryData } from './memory-panel';
-import { PracticeCallSection } from './practice-call-section';
-import { PRACTICE_MODES, PracticeMode, PracticeSelector } from './practice-selector';
-import { ProgressSummary } from './progress-summary';
+import React, { useEffect, useState } from "react";
+import {
+  ArrowRight,
+  BarChart3,
+  Brain,
+  LifeBuoy,
+  Mic,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
+import { motion } from "motion/react";
+import { Button } from "@/components/ui/button";
+import { getPersistentUserId } from "@/lib/utils";
+import { AnalyticsDashboard } from "./analytics-dashboard";
+import { EscalationsDrawer } from "./escalations-drawer";
+import { MemoryPanel, UserMemoryData } from "./memory-panel";
+import { PracticeCallSection } from "./practice-call-section";
+import {
+  PRACTICE_MODES,
+  PracticeMode,
+  PracticeSelector,
+} from "./practice-selector";
+import { ProgressSummary } from "./progress-summary";
 
 interface WelcomeViewProps {
   startButtonText?: string;
@@ -19,16 +31,18 @@ interface WelcomeViewProps {
 }
 
 export const WelcomeView = ({
-  startButtonText = '🎙 Start Speaking',
+  startButtonText = "🎙 Start Speaking",
   onStartCall,
   onSelectTopic,
   ref,
-}: React.ComponentProps<'div'> & WelcomeViewProps) => {
+}: React.ComponentProps<"div"> & WelcomeViewProps) => {
   const [memory, setMemory] = useState<UserMemoryData | null>(null);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [isEscalationsOpen, setIsEscalationsOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<PracticeMode>(PRACTICE_MODES[0]);
+  const [selectedMode, setSelectedMode] = useState<PracticeMode>(
+    PRACTICE_MODES[0],
+  );
 
   // Fetch persistent memory facts on mount
   useEffect(() => {
@@ -36,13 +50,15 @@ export const WelcomeView = ({
       const userId = getPersistentUserId();
       if (!userId) return;
       try {
-        const res = await fetch(`/api/memory?userId=${encodeURIComponent(userId)}`);
+        const res = await fetch(
+          `/api/memory?userId=${encodeURIComponent(userId)}`,
+        );
         const data = await res.json();
         if (data.success && data.memory) {
           setMemory(data.memory);
         }
       } catch (err) {
-        console.warn('Memory fetch warning:', err);
+        console.warn("Memory fetch warning:", err);
       }
     }
     loadMemory();
@@ -68,11 +84,11 @@ export const WelcomeView = ({
 
   const greetingTitle = memory?.name
     ? `Welcome back, ${memory.name}.`
-    : 'Ready for a little English practice?';
+    : "Ready for a little English practice?";
 
   const greetingSubtitle = memory?.learningGoal
     ? `Ready to continue your ${memory.learningGoal} practice?`
-    : 'No perfect English required. Just start speaking.';
+    : "No perfect English required. Just start speaking.";
 
   return (
     <div
@@ -87,7 +103,9 @@ export const WelcomeView = ({
               <Mic className="size-5 text-white" />
             </div>
             <div>
-              <span className="text-xl font-extrabold tracking-tight text-slate-900">BolBuddy</span>
+              <span className="text-xl font-extrabold tracking-tight text-slate-900">
+                BolBuddy
+              </span>
               <p className="text-[11px] font-medium text-slate-500">
                 AI English Speaking Companion
               </p>
@@ -139,10 +157,16 @@ export const WelcomeView = ({
       {/* Main Content */}
       <main className="mx-auto flex max-w-4xl flex-1 flex-col gap-10 px-4 py-8 sm:px-8 sm:py-12">
         {/* Analytics Dashboard Drawer */}
-        <AnalyticsDashboard isOpen={isAnalyticsOpen} onClose={() => setIsAnalyticsOpen(false)} />
+        <AnalyticsDashboard
+          isOpen={isAnalyticsOpen}
+          onClose={() => setIsAnalyticsOpen(false)}
+        />
 
         {/* Escalations Drawer */}
-        <EscalationsDrawer isOpen={isEscalationsOpen} onClose={() => setIsEscalationsOpen(false)} />
+        <EscalationsDrawer
+          isOpen={isEscalationsOpen}
+          onClose={() => setIsEscalationsOpen(false)}
+        />
 
         {/* Memory Panel Drawer */}
         <MemoryPanel
@@ -167,7 +191,8 @@ export const WelcomeView = ({
               &quot;Speak freely without fear of mistakes.&quot;
             </span>
             <span className="ml-1 text-slate-600">
-              Natural English &amp; Hinglish practice designed for Indian learners.
+              Natural English &amp; Hinglish practice designed for Indian
+              learners.
             </span>
           </div>
         </motion.div>
@@ -188,7 +213,9 @@ export const WelcomeView = ({
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl lg:text-5xl">
               {greetingTitle}
             </h1>
-            <p className="text-base font-semibold text-indigo-600 sm:text-lg">{greetingSubtitle}</p>
+            <p className="text-base font-semibold text-indigo-600 sm:text-lg">
+              {greetingSubtitle}
+            </p>
           </div>
 
           {/* Primary Action Button */}
@@ -210,7 +237,10 @@ export const WelcomeView = ({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <PracticeSelector selectedModeId={selectedMode.id} onSelectMode={handleSelectMode} />
+          <PracticeSelector
+            selectedModeId={selectedMode.id}
+            onSelectMode={handleSelectMode}
+          />
         </motion.section>
 
         {/* Practice Call Section */}
@@ -229,7 +259,11 @@ export const WelcomeView = ({
           transition={{ duration: 0.5, delay: 0.2 }}
         >
           <ProgressSummary
-            sessionCount={memory?.topicsPracticed?.length ? memory.topicsPracticed.length + 2 : 1}
+            sessionCount={
+              memory?.topicsPracticed?.length
+                ? memory.topicsPracticed.length + 2
+                : 1
+            }
             topicsPracticedCount={memory?.topicsPracticed?.length || 1}
             streakDays={2}
           />

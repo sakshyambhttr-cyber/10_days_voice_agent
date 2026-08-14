@@ -1,8 +1,15 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { ArrowLeft, CheckCircle2, Lightbulb, RefreshCw, Sparkles, Star } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import React from "react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Lightbulb,
+  RefreshCw,
+  Sparkles,
+  Star,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export interface EvaluationFeedback {
   score?: number;
@@ -24,7 +31,7 @@ export function FeedbackCard({
   onBackHome,
   onPracticeWithFeedback,
 }: FeedbackCardProps) {
-  const hasScore = typeof feedback?.score === 'number';
+  const hasScore = typeof feedback?.score === "number";
 
   if (hasScore && feedback) {
     return (
@@ -35,11 +42,15 @@ export function FeedbackCard({
             <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">
               Evaluation Feedback
             </span>
-            <h3 className="text-lg font-extrabold text-slate-900">Your Speaking Practice</h3>
+            <h3 className="text-lg font-extrabold text-slate-900">
+              Your Speaking Practice
+            </h3>
           </div>
           <div className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2 text-white shadow-md shadow-indigo-600/20">
             <Star className="size-4 fill-amber-300 text-amber-300" />
-            <span className="text-base font-extrabold">{feedback.score} / 10</span>
+            <span className="text-base font-extrabold">
+              {feedback.score} / 10
+            </span>
           </div>
         </div>
 
@@ -111,7 +122,9 @@ export function FeedbackCard({
         <Sparkles className="size-6" />
       </div>
       <div>
-        <h3 className="text-lg font-extrabold text-slate-900">Nice Conversation!</h3>
+        <h3 className="text-lg font-extrabold text-slate-900">
+          Nice Conversation!
+        </h3>
         <p className="mt-1 text-xs text-slate-500">
           Want to practice an answer and get instant speaking feedback?
         </p>

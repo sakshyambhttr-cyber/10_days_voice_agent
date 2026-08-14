@@ -155,30 +155,33 @@ export function resetPersistentUserId(): void {
 
 /**
  * Sanitize chat message text to strip raw tool execution tags, XML, and function JSON payloads
- * e.g., fetch_next_exercise>{"level": "beginner", "topic": "vocabulary"}
+ * while preserving all conversational dialogue.
  */
 export function cleanChatMessage(text: string): string {
   if (!text) return '';
-  let cleaned = text;
+  let cleaned = String(text);
 
-  // 1. Strip XML function tags e.g. <function=...> or </function> or <tool_call...>
+  // 1. Strip XML/HTML function tags e.g. <function=...> or </function> or <tool_call...>
   cleaned = cleaned.replace(/<\/?(?:function|tool_call|tool|action)[^>]*>/gi, '');
   cleaned = cleaned.replace(/<[^>]+>/g, '');
 
-  // 2. Strip function call patterns like fetch_next_exercise>{"level": "beginner", ...}
-  cleaned = cleaned.replace(/\b\w+>\{[\s\S]*?\}/gi, '');
-  cleaned = cleaned.replace(/\b\w+>\{[\s\S]*/gi, '');
+  // 2. Strip function call syntax e.g. fetch_next_exercise>{"level": "beginner", ...}
+  cleaned = cleaned.replace(/\b\w+>\{[^}]*\}/gi, '');
+  cleaned = cleaned.replace(/\b\w+>\{[^\s]*/gi, '');
 
-  // 3. Strip raw tool names followed by arguments or parameters
+  // 3. Strip function invocation with parentheses e.g. transfer_to_interview_buddy(role='dev')
+  cleaned = cleaned.replace(/\b\w+\([^)]*\)/gi, '');
+
+  // 4. Strip raw tool names without wiping out following conversational text
   cleaned = cleaned.replace(
-    /\b(?:transfer_to_interview_buddy|transfer_to_bolbuddy|fetch_next_exercise|score_spoken_answer|create_escalation|lookup_user_memory|save_user_memory|forget_my_data|what_do_you_remember|search_learning_resources|mark_call_outcome)\b(?:\([^)]*\)|>\{[\s\S]*\}|[>\s\S]*)/gi,
+    /\b(?:transfer_to_interview_buddy|transfer_to_bolbuddy|fetch_next_exercise|score_spoken_answer|create_escalation|lookup_user_memory|save_user_memory|forget_my_data|what_do_you_remember|search_learning_resources|mark_call_outcome)\b(?:\([^)]*\)|>\s*\{[^}]*\}|>\s*[^\s]+)?/gi,
     ''
   );
 
-  // 4. Strip leftover JSON objects e.g. {"score": 8, ...} or {"target_role": "..."}
-  cleaned = cleaned.replace(/\{[\s\S]*?\}/g, '');
+  // 5. Strip standalone JSON objects e.g. {"score": 8, ...} or {"target_role": "..."}
+  cleaned = cleaned.replace(/\{[^{}]*\}/g, '');
 
-  // 5. Clean markdown symbols and whitespace
+  // 6. Clean markdown symbols and extra whitespace
   cleaned = cleaned.replace(/[`*_~#]/g, '');
   return cleaned.replace(/\s+/g, ' ').trim();
 }

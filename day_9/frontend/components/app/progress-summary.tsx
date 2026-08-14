@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { Flame, MessageSquare, Target } from 'lucide-react';
+import React from "react";
+import { Flame, MessageSquare, Target } from "lucide-react";
 
 interface ProgressSummaryProps {
   sessionCount?: number;
@@ -21,7 +21,9 @@ export function ProgressSummary({
           <MessageSquare className="size-4" />
         </div>
         <div>
-          <p className="text-xs font-bold text-slate-900">{sessionCount} Sessions</p>
+          <p className="text-xs font-bold text-slate-900">
+            {sessionCount} Sessions
+          </p>
           <p className="text-[10px] text-slate-500">Spoken practice</p>
         </div>
       </div>
@@ -33,7 +35,9 @@ export function ProgressSummary({
           <Target className="size-4" />
         </div>
         <div>
-          <p className="text-xs font-bold text-slate-900">{topicsPracticedCount} Topics</p>
+          <p className="text-xs font-bold text-slate-900">
+            {topicsPracticedCount} Topics
+          </p>
           <p className="text-[10px] text-slate-500">Covered so far</p>
         </div>
       </div>
@@ -45,7 +49,9 @@ export function ProgressSummary({
           <Flame className="size-4" />
         </div>
         <div>
-          <p className="text-xs font-bold text-slate-900">{streakDays} Day Streak</p>
+          <p className="text-xs font-bold text-slate-900">
+            {streakDays} Day Streak
+          </p>
           <p className="text-[10px] text-slate-500">Keep it up!</p>
         </div>
       </div>
